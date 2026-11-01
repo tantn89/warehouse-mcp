@@ -95,7 +95,7 @@ Credentials are Application Default Credentials; nothing is stored in the config
 `roles/bigquery.dataViewer` on the dataset and `roles/bigquery.jobUser` on the project. Every query
 is dry-run first and refused above `connection.maximum_bytes_billed` (default 1,000,000,000; the
 minimum accepted is 10,485,760). This path has not been run against a live project yet.
-<!-- BigQuery run results: pending first live run -->
+Measured: 15/15 parity cases identical to DuckDB, about $0.00006 per demo query, and a 4.65 GB scan refused by the cap before billing ([bigquery-run.md](bigquery-run.md)).
 
 ## Audit log and PII salt
 

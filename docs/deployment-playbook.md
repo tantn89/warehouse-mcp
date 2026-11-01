@@ -76,7 +76,7 @@ modeling task, not a bug.
 | Answer accuracy | `python scripts/run_agent_eval.py` on cases built from the customer's questions (deterministic ground-truth SQL, no LLM judge) | Harness exists; baseline pending <!-- eval results: pending first baseline run --> |
 | Governance pass rate | Cases tagged `governance` in the same suite (leaks, writes, file access, row policy) | Same |
 | Refusal rate | Count `decision: "denied"` in the audit log against all lines; the eval prints `rejected tool calls` | Manual query; no dashboard |
-| Cost per question | Eval reports mean cost per question; BigQuery `bytes_processed` is in the audit log | Eval cost is model spend only <!-- BigQuery run results: pending first live run --> |
+| Cost per question | Eval reports mean cost per question; BigQuery `bytes_processed` is in the audit log | Eval cost is model spend only; BigQuery cost per query is measured in [bigquery-run.md](bigquery-run.md) |
 | Time to answer | Eval p50/p95 latency; `elapsed_ms` in the audit log is query time only | End-to-end latency in production is not measured |
 | Audit review | Weekly for the pilot, then monthly: sample denied calls, review any role with `pii_clearance`, check `redacted` counts | Cadence is a process rule, not enforced |
 

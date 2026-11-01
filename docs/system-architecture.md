@@ -57,7 +57,7 @@ caught by column tags; that is the narrow redaction net below, and column lineag
 
 Redaction, cell cap, result cap and audit are backend-independent (`service.py`, `redaction.py`,
 `audit.py`). BigQuery's layer is code-reviewed and dialect-tested but has no live run yet.
-<!-- BigQuery run results: pending first live run -->
+Measured: 15/15 parity cases identical to DuckDB, about $0.00006 per demo query, and a 4.65 GB scan refused by the cap before billing ([bigquery-run.md](bigquery-run.md)).
 
 ## Identity: HTTP bearer key to role
 

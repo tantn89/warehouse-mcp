@@ -19,7 +19,7 @@ Done:
 Open at v0.1 (measure before claiming):
 
 - First baseline eval run: accuracy, cost per question, latency. <!-- eval results: pending first baseline run -->
-- First live BigQuery run: bytes billed against the cap. <!-- BigQuery run results: pending first live run -->
+
 
 ## Next
 

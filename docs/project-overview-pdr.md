@@ -62,7 +62,7 @@ with no test is marked.
 ## Evidence status
 
 - Guard, redaction, row policy, pseudonyms, audit: proven by tests on DuckDB, and on Postgres in CI.
-- BigQuery: dialect rendering and guard cases are tested; live runs and the byte cap are not yet measured. <!-- BigQuery run results: pending first live run -->
+- BigQuery: measured on a live project: 15/15 parity cases identical to DuckDB, and the byte cap refuses a 4.65 GB scan before billing ([bigquery-run.md](bigquery-run.md)). The live run is not part of CI (needs credentials).
 - Agent accuracy, cost per question, latency: harness and gate exist; no baseline has been recorded. <!-- eval results: pending first baseline run -->
 
 ## Demo dataset
