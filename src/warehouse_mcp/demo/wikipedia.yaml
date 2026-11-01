@@ -1,0 +1,132 @@
+# Semantic model for the Wikipedia edits snapshot: the gold marts and silver tables of
+# https://github.com/tantn89/realtime-lakehouse. Reused by every backend; only `connection`
+# and the physical `table` names change (see examples/).
+name: wikipedia
+description: Live Wikipedia edits captured by a streaming lakehouse; content CC BY-SA 4.0.
+connection:
+  kind: duckdb
+  path: ${WAREHOUSE_MCP_DEMO_DB}
+
+datasets:
+  - name: edits
+    table: main.edits
+    description: Every edit and page creation across Wikimedia wikis, one row per change.
+    grain: one edit or new page
+    time_column: event_time
+    columns:
+      - {name: event_id, description: Unique id of the change.}
+      - {name: event_time, description: When the edit happened (UTC).}
+      - {name: event_type, description: "'edit' or 'new' (page creation)."}
+      - {name: wiki, description: "Wiki database name, e.g. enwiki, dewiki, wikidatawiki."}
+      - {name: namespace, description: "0 is articles; other values are talk, user, project pages."}
+      - {name: title, description: Page title.}
+      - {name: editor, description: Account that made the edit., pii: true}
+      - {name: is_bot, description: True when the account is flagged as a bot.}
+      - {name: is_minor, description: Editor marked the change as minor.}
+      - {name: length_delta, description: Bytes added (positive) or removed (negative).}
+      - {name: comment, description: Edit summary written by the editor., free_text: true}
+    metrics:
+      - {name: edits, sql: "count(*)", description: Number of changes.}
+      - {name: editors, sql: "count(DISTINCT editor)", description: Distinct accounts.}
+      - {name: new_pages, sql: "sum(CASE WHEN event_type = 'new' THEN 1 ELSE 0 END)", description: Pages created.}
+      - {name: bot_share, sql: "avg(CASE WHEN is_bot THEN 1.0 ELSE 0.0 END)", description: Fraction of changes made by bots (0-1).}
+      - {name: bytes_added, sql: "sum(CASE WHEN length_delta > 0 THEN length_delta ELSE 0 END)", description: Bytes added.}
+      - {name: bytes_removed, sql: "sum(CASE WHEN length_delta < 0 THEN -length_delta ELSE 0 END)", description: Bytes removed.}
+
+  - name: editor_sessions
+    table: main.editor_sessions
+    description: Editing sessions, closed after 20 minutes without an edit by the same account.
+    grain: one session of one account on one wiki
+    time_column: session_start
+    columns:
+      - {name: wiki, description: Wiki database name.}
+      - {name: editor, description: Account of the session., pii: true}
+      - {name: session_start, description: First edit of the session (UTC).}
+      - {name: session_end, description: Last edit of the session (UTC).}
+      - {name: edits, description: Edits in the session.}
+      - {name: bytes_changed, description: Sum of absolute byte changes.}
+      - {name: pages, description: Approximate distinct pages edited.}
+      - {name: is_bot, description: Bot account.}
+    metrics:
+      - {name: sessions, sql: "count(*)", description: Number of sessions.}
+      - {name: avg_edits_per_session, sql: "avg(edits)", description: Mean edits per session.}
+
+  - name: edits_per_minute
+    table: main.edits_per_minute
+    description: Gold mart, edit volume per wiki and minute.
+    grain: one wiki in one minute
+    time_column: event_minute
+    columns:
+      - {name: event_minute, description: Minute bucket (UTC).}
+      - {name: wiki, description: Wiki database name.}
+      - {name: edits, description: Changes in the minute.}
+      - {name: bot_edits, description: Changes by bots.}
+      - {name: human_edits, description: Changes by humans.}
+      - {name: new_pages, description: Pages created.}
+      - {name: bytes_added, description: Bytes added.}
+      - {name: bytes_removed, description: Bytes removed.}
+    metrics:
+      - {name: total_edits, sql: "sum(edits)", description: Changes.}
+      - {name: total_bot_edits, sql: "sum(bot_edits)", description: Changes by bots.}
+
+  - name: bot_activity_daily
+    table: main.bot_activity_daily
+    description: Gold mart, daily bot versus human activity per wiki.
+    grain: one wiki on one day
+    time_column: event_date
+    columns:
+      - {name: event_date, description: Day (UTC).}
+      - {name: wiki, description: Wiki database name.}
+      - {name: edits, description: Changes that day.}
+      - {name: bot_share, description: Fraction of changes by bots (0-1).}
+      - {name: human_editors, description: Distinct human accounts.}
+      - {name: bot_accounts, description: Distinct bot accounts.}
+
+  - name: trending_articles
+    table: main.trending_articles
+    description: Gold mart, top 50 articles in the last hour of data, by distinct human editors.
+    grain: one article
+    columns:
+      - {name: wiki, description: Wiki database name.}
+      - {name: title, description: Article title.}
+      - {name: editors, description: Distinct human editors in the hour.}
+      - {name: edits, description: Human edits in the hour.}
+      - {name: last_edit_at, description: Latest edit (UTC).}
+      - {name: trend_rank, description: 1 is the most trending.}
+
+  - name: editor_sessions_daily
+    table: main.editor_sessions_daily
+    description: Gold mart, session statistics per day, wiki and bot flag.
+    grain: one wiki, day and bot flag
+    time_column: session_date
+    columns:
+      - {name: session_date, description: Day (UTC).}
+      - {name: wiki, description: Wiki database name.}
+      - {name: is_bot, description: Bot sessions or human sessions.}
+      - {name: sessions, description: Number of sessions.}
+      - {name: avg_edits_per_session, description: Mean edits per session.}
+      - {name: median_session_minutes, description: Median session length in minutes.}
+      - {name: bytes_changed, description: Sum of absolute byte changes.}
+
+roles:
+  # Default role: every dataset, editor names pseudonymized.
+  - name: analyst
+    datasets: "*"
+    api_key_env: WAREHOUSE_MCP_KEY_ANALYST
+  - name: enwiki_partner
+    datasets: [edits, edits_per_minute, trending_articles]
+    row_filters:
+      edits: "wiki = 'enwiki'"
+      edits_per_minute: "wiki = 'enwiki'"
+      trending_articles: "wiki = 'enwiki'"
+    api_key_env: WAREHOUSE_MCP_KEY_ENWIKI_PARTNER
+  - name: trust_and_safety
+    datasets: "*"
+    pii_clearance: true
+    api_key_env: WAREHOUSE_MCP_KEY_TRUST_AND_SAFETY
+
+default_role: analyst
+limits:
+  max_rows: 200
+  timeout_s: 20
+audit_log: ${WAREHOUSE_MCP_AUDIT_LOG:-}
