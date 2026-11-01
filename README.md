@@ -16,6 +16,8 @@ Every claim below is backed by a test or a measured run.
 <!-- mcp-name: io.github.tantn89/warehouse-mcp -->
 
 ![ci](https://github.com/tantn89/warehouse-mcp/actions/workflows/ci.yml/badge.svg)
+[![pypi](https://img.shields.io/pypi/v/warehouse-mcp)](https://pypi.org/project/warehouse-mcp/)
+[![mcp registry](https://img.shields.io/badge/MCP%20Registry-io.github.tantn89%2Fwarehouse--mcp-purple)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.tantn89/warehouse-mcp)
 ![python](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue)
 ![mcp](https://img.shields.io/badge/MCP-2026--07--28-purple)
 ![license](https://img.shields.io/badge/license-MIT-green)
