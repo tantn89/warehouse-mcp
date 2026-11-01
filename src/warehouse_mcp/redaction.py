@@ -13,7 +13,8 @@ import re
 # string with no `@`, and that would run after the warehouse timeout, holding the server.
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}")
 # 8+ digits, optionally with a leading +, separated by spaces, dots, dashes or parentheses.
-_PHONE = re.compile(r"(?<![\w])\+?\d(?:[\s().-]?\d){7,14}(?![\w])")
+# Up to two separators between digits, so "+1 (415) 555-0100" matches as a whole.
+_PHONE = re.compile(r"(?<![\w])\+?\(?\d(?:[\s().-]{0,2}\d){7,14}(?![\w])")
 
 
 def redact(text: str, phones: bool) -> tuple[str, int]:
