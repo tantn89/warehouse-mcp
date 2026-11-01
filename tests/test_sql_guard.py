@@ -129,6 +129,23 @@ def test_ungranted_dataset_is_rejected_with_the_available_list(settings: Setting
         guard("SELECT * FROM salaries", settings)
 
 
+@pytest.mark.parametrize("sql", [
+    # A physical table aliased to a CTE's name must not pass as the CTE (found in review).
+    "WITH x AS (SELECT wiki FROM edits) SELECT editor FROM edits_raw x, x",
+    "WITH x AS (SELECT wiki FROM edits) SELECT x.editor FROM edits x JOIN x y ON true",
+    "WITH x AS (SELECT wiki FROM edits) SELECT * FROM salaries AS x",
+])
+def test_aliasing_a_table_to_a_cte_name_is_rejected(settings: Settings, sql: str) -> None:
+    with pytest.raises(QueryRejected):
+        guard(sql, settings)
+
+
+def test_cte_references_by_their_own_name_still_work(demo_db: Path) -> None:
+    rows = run("WITH a AS (SELECT editor, wiki FROM edits) "
+               "SELECT count(DISTINCT b.editor) FROM a AS b JOIN a ON a.wiki = b.wiki", demo_db)
+    assert rows == [(3,)]
+
+
 def test_cte_shadowing_a_table_does_not_bypass_the_guard(settings: Settings) -> None:
     # Inside the CTE body, `salaries` is the real table, not the CTE.
     with pytest.raises(QueryRejected, match="may not read salaries"):

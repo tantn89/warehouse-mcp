@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import OptimizeError, ParseError
-from sqlglot.optimizer.scope import Scope, traverse_scope
+from sqlglot.optimizer.scope import traverse_scope
 
 from warehouse_mcp.config import Dataset, Role, Settings
 
@@ -116,10 +116,14 @@ def _check_functions(root: exp.Expr, settings: Settings) -> None:
 
 
 def _cte_references(root: exp.Expr) -> set[int]:
-    """ids of the Table nodes that resolve to a CTE.
+    """ids of the Table nodes that refer to a CTE.
 
-    Resolved by scope, not by name: in `WITH t AS (SELECT * FROM t)` the inner `t` is the real
-    table t. A name match would wave it through unguarded.
+    A table refers to a CTE when its *name* is a CTE visible in its own scope. Two shortcuts
+    are wrong and were both exploitable:
+    - a global name match: in `WITH t AS (SELECT * FROM t)` the inner `t` is the real table t;
+    - the alias: in `WITH x AS (...) SELECT * FROM secret_table x` the real table is aliased
+      to the CTE's name.
+    Aliasing a real table to a visible CTE name is refused outright: it is never needed.
     """
     if any(w.args.get("recursive") for w in root.find_all(exp.With)):
         raise QueryRejected("WITH RECURSIVE is not allowed.")
@@ -129,9 +133,15 @@ def _cte_references(root: exp.Expr) -> set[int]:
         raise QueryRejected(f"Could not resolve the query's tables: {exc}") from exc
     cte_refs: set[int] = set()
     for scope in scopes:
+        visible = {name.lower() for name in scope.cte_sources}
         for table in scope.tables:
-            if isinstance(scope.sources.get(table.alias_or_name), Scope):
+            if table.args.get("db") or table.args.get("catalog"):
+                continue  # qualified: never a CTE; rejected later
+            if table.name.lower() in visible:
                 cte_refs.add(id(table))
+            elif table.alias and table.alias.lower() in visible:
+                raise QueryRejected(f"Alias {table.alias!r} hides the CTE of the same name; "
+                                    "use a different alias.")
     return cte_refs
 
 
