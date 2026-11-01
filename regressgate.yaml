@@ -1,0 +1,13 @@
+# Agent eval gate, run by .github/workflows/eval-gate.yml or locally:
+#   regressgate run --out head.json && regressgate compare evals/baseline.json head.json
+# Needs the eval extra (pip install -e ".[eval]") and ANTHROPIC_API_KEY. The demo DuckDB is
+# built on first use; WAREHOUSE_MCP_EVAL_MODEL picks the model (default claude-haiku-5-5).
+target: warehouse_mcp.evaluation.regressgate_target:answer
+cases: evals/cases.jsonl
+repeats: 3
+concurrency: 2
+gate:
+  alpha: 0.05
+  # Haiku 5.5 needs well under $0.01 per question; the cap catches runaway tool loops.
+  max_mean_cost_usd: 0.02
+  max_p95_latency_s: 60

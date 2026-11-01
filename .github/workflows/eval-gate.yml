@@ -1,0 +1,96 @@
+name: eval-gate
+
+# Live agent evals spend LLM credits (Haiku 5.5: well under $0.01 per question per trial),
+# so they run on demand: manually, or on a pull request when it gets the `run-evals` label.
+#   mode=baseline  run the suite and upload the report as an artifact; commit it as
+#                  evals/baseline.json to set the reference.
+#   mode=gate      run the suite and compare it against the committed evals/baseline.json.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: baseline (produce evals/baseline.json) or gate (compare against it)
+        type: choice
+        options: [gate, baseline]
+        default: gate
+      repeats:
+        description: Trials per question
+        default: "3"
+      model:
+        description: Anthropic model id
+        default: claude-haiku-5-5
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: eval-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-evals'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      WAREHOUSE_MCP_EVAL_MODEL: ${{ inputs.model || 'claude-haiku-5-5' }}
+      MODE: ${{ inputs.mode || 'gate' }}
+      REPEATS: ${{ inputs.repeats || '3' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Check the API key secret is set
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Add an ANTHROPIC_API_KEY repository secret to run the eval gate."
+            exit 1
+          fi
+      - name: Check the baseline exists
+        if: env.MODE == 'gate'
+        run: |
+          if [ ! -f evals/baseline.json ]; then
+            echo "::error::evals/baseline.json is missing. Run this workflow with mode=baseline, download the eval-report artifact and commit it as evals/baseline.json."
+            exit 1
+          fi
+      - run: pip install -e ".[eval]"
+      - name: Build the demo database
+        run: python -c "from warehouse_mcp.demo import demo_config_path; demo_config_path()"
+
+      - name: Run the suite (baseline)
+        if: env.MODE == 'baseline'
+        run: |
+          regressgate run --repeats "$REPEATS" --out .regressgate/baseline.json \
+            --markdown .regressgate/baseline.md
+          cat .regressgate/baseline.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the baseline report
+        if: env.MODE == 'baseline'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: |
+            .regressgate/baseline.json
+            .regressgate/baseline.md
+            .regressgate/eval-audit.jsonl
+          if-no-files-found: error
+
+      - name: Run the suite and gate against the baseline
+        if: env.MODE == 'gate'
+        uses: tantn89/regressgate@v0.1.0
+        with:
+          install: regressgate==0.1.0
+          baseline: evals/baseline.json
+          repeats: ${{ env.REPEATS }}
+      - name: Upload the gate report
+        if: always() && env.MODE == 'gate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-gate-report
+          path: .regressgate/
+          if-no-files-found: ignore
