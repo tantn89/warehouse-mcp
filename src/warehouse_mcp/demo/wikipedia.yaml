@@ -1,6 +1,6 @@
 # Semantic model for the Wikipedia edits snapshot: the gold marts and silver tables of
 # https://github.com/tantn89/realtime-lakehouse. Reused by every backend; only `connection`
-# and the physical `table` names change (see examples/).
+# and the schema of the physical tables (WAREHOUSE_MCP_SCHEMA) change; see examples/.
 name: wikipedia
 description: Live Wikipedia edits captured by a streaming lakehouse; content CC BY-SA 4.0.
 connection:
@@ -9,7 +9,7 @@ connection:
 
 datasets:
   - name: edits
-    table: main.edits
+    table: ${WAREHOUSE_MCP_SCHEMA:-main}.edits
     description: Every edit and page creation across Wikimedia wikis, one row per change.
     grain: one edit or new page
     time_column: event_time
@@ -34,7 +34,7 @@ datasets:
       - {name: bytes_removed, sql: "sum(CASE WHEN length_delta < 0 THEN -length_delta ELSE 0 END)", description: Bytes removed.}
 
   - name: editor_sessions
-    table: main.editor_sessions
+    table: ${WAREHOUSE_MCP_SCHEMA:-main}.editor_sessions
     description: Editing sessions, closed after 20 minutes without an edit by the same account.
     grain: one session of one account on one wiki
     time_column: session_start
@@ -52,7 +52,7 @@ datasets:
       - {name: avg_edits_per_session, sql: "avg(edits)", description: Mean edits per session.}
 
   - name: edits_per_minute
-    table: main.edits_per_minute
+    table: ${WAREHOUSE_MCP_SCHEMA:-main}.edits_per_minute
     description: Gold mart, edit volume per wiki and minute.
     grain: one wiki in one minute
     time_column: event_minute
@@ -70,7 +70,7 @@ datasets:
       - {name: total_bot_edits, sql: "sum(bot_edits)", description: Changes by bots.}
 
   - name: bot_activity_daily
-    table: main.bot_activity_daily
+    table: ${WAREHOUSE_MCP_SCHEMA:-main}.bot_activity_daily
     description: Gold mart, daily bot versus human activity per wiki.
     grain: one wiki on one day
     time_column: event_date
@@ -83,7 +83,7 @@ datasets:
       - {name: bot_accounts, description: Distinct bot accounts.}
 
   - name: trending_articles
-    table: main.trending_articles
+    table: ${WAREHOUSE_MCP_SCHEMA:-main}.trending_articles
     description: Gold mart, top 50 articles in the last hour of data, by distinct human editors.
     grain: one article
     columns:
@@ -95,7 +95,7 @@ datasets:
       - {name: trend_rank, description: 1 is the most trending.}
 
   - name: editor_sessions_daily
-    table: main.editor_sessions_daily
+    table: ${WAREHOUSE_MCP_SCHEMA:-main}.editor_sessions_daily
     description: Gold mart, session statistics per day, wiki and bot flag.
     grain: one wiki, day and bot flag
     time_column: session_date

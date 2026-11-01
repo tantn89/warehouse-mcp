@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 import re
+from importlib import resources
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -152,6 +153,25 @@ def _expand_env(text: str) -> str:
     return _ENV_REF.sub(replace, text)
 
 
+def _load_raw(path: Path, depth: int = 0) -> dict[str, Any]:
+    raw = yaml.safe_load(_expand_env(path.read_text(encoding="utf-8"))) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: expected a mapping at the top level")
+    base_ref = raw.pop("extends", None)
+    if base_ref is None:
+        return raw
+    if depth >= 3:
+        raise ValueError(f"{path}: `extends` chains deeper than 3 files")
+    if str(base_ref).startswith("demo:"):
+        base_path = Path(str(resources.files("warehouse_mcp.demo") / f"{base_ref[5:]}.yaml"))
+    else:
+        base_path = (path.parent / str(base_ref)).resolve()
+    # Top-level keys replace the base's wholesale: a new `connection` must not inherit the
+    # old one's fields (a Postgres connection has no DuckDB `path`).
+    return {**_load_raw(base_path, depth + 1), **raw}
+
+
 def load_settings(path: str | Path) -> Settings:
-    raw = yaml.safe_load(_expand_env(Path(path).read_text(encoding="utf-8")))
-    return Settings.model_validate(raw)
+    """Load a config. `extends: other.yaml` (relative) or `extends: demo:wikipedia` reuses a
+    base config, and the keys given here replace the base's."""
+    return Settings.model_validate(_load_raw(Path(path)))
