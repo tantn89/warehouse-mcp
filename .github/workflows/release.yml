@@ -51,18 +51,10 @@ jobs:
 
   mcp-registry:
     needs: pypi
-    runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install mcp-publisher
-        run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
-      - run: ./mcp-publisher login github-oidc
-      # The registry checks that the PyPI package README carries `mcp-name: <server name>`.
-      - run: ./mcp-publisher publish
+    uses: ./.github/workflows/mcp-registry.yml
 
   github-release:
     needs: pypi

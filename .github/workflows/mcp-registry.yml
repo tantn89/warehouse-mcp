@@ -1,0 +1,28 @@
+name: mcp-registry
+
+# Publish server.json to the official MCP Registry (metadata only; the PyPI package must already
+# exist). Called by the release workflow, or run by hand to republish metadata for the current
+# version without a new PyPI release.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: The registry caps the description at 100 characters
+        run: python3 -c "import json; d=json.load(open('server.json'))['description']; assert len(d) <= 100, f'{len(d)} chars'"
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      # The registry checks that the PyPI package README carries `mcp-name: <server name>`.
+      - run: ./mcp-publisher publish
