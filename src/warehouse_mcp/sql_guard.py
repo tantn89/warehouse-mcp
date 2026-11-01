@@ -39,6 +39,7 @@ _FORBIDDEN_NODES: tuple[type[exp.Expr], ...] = tuple(
 _DENIED_FUNCTIONS = {
     "ReadCSV", "ReadParquet", "ToFile", "GenerateSeries", "ExplodingGenerateSeries", "Explode",
     "_ExplodeOuter", "Unnest", "CurrentUser", "SessionUser", "CurrentSchema", "CurrentCatalog",
+    "CurrentDatabase", "CurrentVersion",
 }
 
 # Functions the parser does not model (so it sees an "Anonymous" call) are denied unless
@@ -183,11 +184,17 @@ def pseudonym(column: str, salt: str) -> exp.Expr:
 def policy_source(dataset: Dataset, role: Role, dialect: str, pii_salt: str,
                   alias: str) -> exp.Subquery:
     """The only view of a dataset a role gets: declared columns, pseudonyms, its row filter."""
-    projections = [
-        (pseudonym(col.name, pii_salt) if col.pii and not role.pii_clearance
-         else exp.column(col.name)).as_(col.name)
-        for col in dataset.columns
-    ]
+    projections = []
+    for col in dataset.columns:
+        value: exp.Expr = exp.column(col.name)
+        if not role.pii_clearance:
+            if col.pii:
+                value = pseudonym(col.name, pii_salt)
+            elif col.pii_when:
+                value = exp.Case(ifs=[exp.If(this=sqlglot.condition(col.pii_when, dialect=dialect),
+                                            true=pseudonym(col.name, pii_salt))],
+                                 default=value)
+        projections.append(value.as_(col.name))
     select = exp.select(*projections).from_(exp.to_table(dataset.table, dialect=dialect))
     row_filter = role.row_filters.get(dataset.name)
     if row_filter:

@@ -5,7 +5,7 @@ name: wikipedia
 description: Live Wikipedia edits captured by a streaming lakehouse; content CC BY-SA 4.0.
 connection:
   kind: duckdb
-  path: ${WAREHOUSE_MCP_DEMO_DB}
+  path: ${WAREHOUSE_MCP_DEMO_DB:-}
 
 datasets:
   - name: edits
@@ -19,12 +19,12 @@ datasets:
       - {name: event_type, description: "'edit' or 'new' (page creation)."}
       - {name: wiki, description: "Wiki database name, e.g. enwiki, dewiki, wikidatawiki."}
       - {name: namespace, description: "0 is articles; other values are talk, user, project pages."}
-      - {name: title, description: Page title.}
+      - {name: title, description: "Page title. Titles of user pages are pseudonymized: they carry the user's name.", pii_when: "namespace IN (2, 3)"}
       - {name: editor, description: Account that made the edit., pii: true}
       - {name: is_bot, description: True when the account is flagged as a bot.}
       - {name: is_minor, description: Editor marked the change as minor.}
       - {name: length_delta, description: Bytes added (positive) or removed (negative).}
-      - {name: comment, description: Edit summary written by the editor., free_text: true}
+      - {name: comment, description: "Edit summary written by the editor. Pseudonymized: summaries often name people.", pii: true, free_text: true}
     metrics:
       - {name: edits, sql: "count(*)", description: Number of changes.}
       - {name: editors, sql: "count(DISTINCT editor)", description: Distinct accounts.}

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import re
 
-_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# Bounded repeats (RFC 5321 lengths): an unbounded `[...]+@` backtracks quadratically on a long
+# string with no `@`, and that would run after the warehouse timeout, holding the server.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}")
 # 8+ digits, optionally with a leading +, separated by spaces, dots, dashes or parentheses.
 _PHONE = re.compile(r"(?<![\w])\+?\d(?:[\s().-]?\d){7,14}(?![\w])")
 

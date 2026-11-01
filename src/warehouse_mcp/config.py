@@ -51,8 +51,18 @@ class Column(_Strict):
     description: str = ""
     pii: bool = Field(default=False, description="Identifies a person: pseudonymized unless "
                                                  "the role is cleared.")
+    pii_when: str | None = Field(
+        default=None, description="SQL predicate: pseudonymize only the rows it matches, e.g. "
+                                  "titles of user pages, which carry the user's name.")
     free_text: bool = Field(default=False, description="Human-written text: scanned for "
                                                        "emails and phone numbers.")
+
+
+    @model_validator(mode="after")
+    def _one_pii_mode(self) -> Column:
+        if self.pii and self.pii_when:
+            raise ValueError(f"column {self.name}: set pii or pii_when, not both")
+        return self
 
 
 class Metric(_Strict):
@@ -100,6 +110,8 @@ class Limits(_Strict):
     max_rows: int = Field(default=500, ge=1, le=10_000)
     timeout_s: float = Field(default=20.0, gt=0, le=300)
     max_result_chars: int = Field(default=40_000, ge=1_000)
+    max_cell_chars: int = Field(default=2_000, ge=100,
+                                description="Longer text values are cut, before redaction.")
 
 
 class Settings(_Strict):

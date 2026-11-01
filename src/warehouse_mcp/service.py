@@ -47,6 +47,7 @@ class ColumnInfo(BaseModel):
     type: str
     description: str
     pseudonymized: bool
+    pseudonymized_when: str | None = None  # only rows matching this predicate are masked
     free_text: bool
 
 
@@ -114,6 +115,8 @@ class WarehouseService:
             columns=[ColumnInfo(name=c.name, type=types.get(c.name, "unknown"),
                                 description=c.description,
                                 pseudonymized=c.pii and not role.pii_clearance,
+                                pseudonymized_when=(c.pii_when if not role.pii_clearance
+                                                    else None),
                                 free_text=c.free_text) for c in dataset.columns],
             row_policy=dataset.name in role.row_filters,
             sample_rows=[dict(zip(sample.columns, row, strict=True)) for row in sample.rows],
@@ -164,20 +167,25 @@ class WarehouseService:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
         free_text = self._free_text_columns(guarded.datasets)
-        rows, redacted = [], 0
+        rows, redacted, truncated_cells = [], 0, False
         for raw in result.rows:
             row = []
             for column, value in zip(result.columns, raw, strict=True):
                 cell = _json_value(value)
                 if isinstance(cell, str):
+                    # Cut first: bounds both the payload and the time redaction can take.
+                    if len(cell) > limits.max_cell_chars:
+                        cell, truncated_cells = cell[:limits.max_cell_chars] + "…[cut]", True
                     cell, found = redact(cell, phones=column in free_text)
                     redacted += found
                 row.append(cell)
             rows.append(row)
-        truncated = len(rows) > limits.max_rows
+        truncated = len(rows) > limits.max_rows or truncated_cells
         rows = rows[:limits.max_rows]
         while len(rows) > 1 and len(json.dumps(rows, default=str)) > limits.max_result_chars:
             rows, truncated = rows[: len(rows) // 2], True
+        if rows and _fit_single_row(rows[0], limits.max_result_chars):
+            truncated = True
 
         output = QueryOutput(columns=result.columns, rows=rows, row_count=len(rows),
                              truncated=truncated, sql=guarded.logical_sql,
@@ -206,6 +214,19 @@ def _summary(dataset: Dataset) -> DatasetSummary:
                           grain=dataset.grain, time_column=dataset.time_column,
                           metrics=[MetricInfo(name=m.name, description=m.description)
                                    for m in dataset.metrics])
+
+
+def _fit_single_row(row: list[Any], max_chars: int) -> bool:
+    """Halve the longest text cell until one row fits the result cap. True if anything was cut."""
+    cut = False
+    while len(json.dumps([row], default=str)) > max_chars:
+        texts = [i for i, v in enumerate(row) if isinstance(v, str) and len(v) > 20]
+        if not texts:
+            break
+        longest = max(texts, key=lambda i: len(row[i]))
+        row[longest] = row[longest][: len(row[longest]) // 2] + "…[cut]"
+        cut = True
+    return cut
 
 
 def _json_value(value: Any) -> Any:
