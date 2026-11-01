@@ -8,6 +8,7 @@ read Parquet at query time. Building it is the only step that reads files.
 from __future__ import annotations
 
 import os
+import uuid
 from importlib import resources
 from pathlib import Path
 
@@ -28,8 +29,9 @@ def build_demo_database(target: Path) -> Path:
     """Load the bundled Parquet snapshot into a DuckDB file (idempotent, atomic)."""
     data = resources.files("warehouse_mcp.demo") / "data"
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(".building")
-    tmp.unlink(missing_ok=True)
+    # A private temporary name per process: two clients starting `--demo` at once on an empty
+    # cache each build their own file, and the atomic rename lets the last one win cleanly.
+    tmp = target.with_name(f"{target.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.building")
     con = duckdb.connect(str(tmp))
     try:
         for table in TABLES:

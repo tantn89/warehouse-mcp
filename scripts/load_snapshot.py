@@ -29,8 +29,6 @@ from importlib import resources
 from pathlib import Path
 
 import duckdb
-import psycopg
-from psycopg import sql
 
 from warehouse_mcp.demo import TABLES
 
@@ -77,6 +75,10 @@ def postgres_type(table: str, column: str, duckdb_type: str) -> str:
 
 
 def load_postgres(dsn: str, schema: str) -> None:
+    # Imported here so the BigQuery path works with only the [bigquery] extra installed.
+    import psycopg
+    from psycopg import sql
+
     source = duckdb.connect()
     try:
         with parquet_files() as paths, psycopg.connect(dsn, autocommit=False) as conn:
@@ -105,7 +107,7 @@ def load_postgres(dsn: str, schema: str) -> None:
 
 
 def load_bigquery(project: str, dataset: str, location: str) -> None:
-    """Untested here (needs a GCP project): one WRITE_TRUNCATE Parquet load job per table."""
+    """One WRITE_TRUNCATE Parquet load job per table (used for docs/bigquery-run.md)."""
     from google.cloud import bigquery
 
     client = bigquery.Client(project=project, location=location)
@@ -144,6 +146,8 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("--target bigquery needs --project and --dataset")
         load_bigquery(args.project, args.dataset, args.location)
         return
+    import psycopg
+
     try:
         load_postgres(args.dsn, args.schema)
     except psycopg.Error as exc:
