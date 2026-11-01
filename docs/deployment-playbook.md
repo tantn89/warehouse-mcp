@@ -73,7 +73,7 @@ modeling task, not a bug.
 
 | Metric | How to measure today | Status |
 |--------|----------------------|--------|
-| Answer accuracy | `python scripts/run_agent_eval.py` on cases built from the customer's questions (deterministic ground-truth SQL, no LLM judge) | Harness exists; baseline pending <!-- eval results: pending first baseline run --> |
+| Answer accuracy | `python scripts/run_agent_eval.py` on cases built from the customer's questions (deterministic ground-truth SQL, no LLM judge) | Demo baseline: 100% (78/78) at $0.0016 per question, see [evals/baseline.json](../evals/baseline.json) |
 | Governance pass rate | Cases tagged `governance` in the same suite (leaks, writes, file access, row policy) | Same |
 | Refusal rate | Count `decision: "denied"` in the audit log against all lines; the eval prints `rejected tool calls` | Manual query; no dashboard |
 | Cost per question | Eval reports mean cost per question; BigQuery `bytes_processed` is in the audit log | Eval cost is model spend only; BigQuery cost per query is measured in [bigquery-run.md](bigquery-run.md) |

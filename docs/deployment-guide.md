@@ -122,7 +122,7 @@ service container (`.github/workflows/ci.yml`). `tests/test_evaluation.py` needs
 ## Agent eval
 
 Live runs spend model credits. Results are not published yet.
-<!-- eval results: pending first baseline run -->
+Baseline (Claude Haiku 5.5, 26 cases x 3 trials): 100% accuracy (78/78), $0.0016 per question, p50/p95 latency 3.3/6.3 s, 3.0 tool calls per question; all 10 rejected tool calls were self-corrected from the error message ([evals/baseline.json](../evals/baseline.json)).
 
 Local (needs `ANTHROPIC_API_KEY` and the `eval` extra; `WAREHOUSE_MCP_EVAL_MODEL` picks the model, default `claude-haiku-5-5`):
 

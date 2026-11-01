@@ -1,4 +1,4 @@
-﻿# warehouse-mcp
+# warehouse-mcp
 
 **Give AI agents your warehouse without giving them your warehouse.**
 
@@ -26,7 +26,7 @@ Every claim below is backed by a test or a measured run.
 | Same 15 queries on three engines | **Identical results** on DuckDB, Postgres and BigQuery | [parity tests](tests/test_postgres_parity.py), [BigQuery run](docs/bigquery-run.md) |
 | Writes with the SQL guard bypassed | Refused by the engine itself: read-only transaction, then grants | [`test_postgres_parity.py`](tests/test_postgres_parity.py) |
 | A careless agent query on a multi-terabyte table | Refused before billing: *"would scan 4.65 GB, above the 1.00 GB cap"* | [BigQuery run](docs/bigquery-run.md) |
-| Agent answers over MCP, graded against SQL ground truth | <!-- eval results: pending first baseline run --> 26 cases, gated by [regressgate](https://github.com/tantn89/regressgate) | [`evals/cases.jsonl`](evals/cases.jsonl) |
+| A Claude Haiku 5.5 agent answering over MCP, graded against SQL ground truth (26 cases, 3 trials each) | **78/78 correct**, including 6 governance cases, at **$0.0016 per question**, p95 6.3 s. Gated by [regressgate](https://github.com/tantn89/regressgate) | [`evals/cases.jsonl`](evals/cases.jsonl) |
 
 ---
 

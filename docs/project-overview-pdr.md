@@ -63,7 +63,7 @@ with no test is marked.
 
 - Guard, redaction, row policy, pseudonyms, audit: proven by tests on DuckDB, and on Postgres in CI.
 - BigQuery: measured on a live project: 15/15 parity cases identical to DuckDB, and the byte cap refuses a 4.65 GB scan before billing ([bigquery-run.md](bigquery-run.md)). The live run is not part of CI (needs credentials).
-- Agent accuracy, cost per question, latency: harness and gate exist; no baseline has been recorded. <!-- eval results: pending first baseline run -->
+- Baseline (Claude Haiku 5.5, 26 cases x 3 trials): 100% accuracy (78/78), $0.0016 per question, p50/p95 latency 3.3/6.3 s, 3.0 tool calls per question; all 10 rejected tool calls were self-corrected from the error message ([evals/baseline.json](../evals/baseline.json)).
 
 ## Demo dataset
 

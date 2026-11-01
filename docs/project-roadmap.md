@@ -18,7 +18,7 @@ Done:
 
 Open at v0.1 (measure before claiming):
 
-- First baseline eval run: accuracy, cost per question, latency. <!-- eval results: pending first baseline run -->
+- More eval cases, including harder multi-step questions: the demo suite is saturated at 100%.
 
 
 ## Next
