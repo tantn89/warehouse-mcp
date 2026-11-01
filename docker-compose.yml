@@ -1,0 +1,34 @@
+# Local Postgres warehouse for the demo, the parity tests and the red-team suite.
+#
+#   docker compose up -d --wait
+#   python scripts/load_snapshot.py
+#   export WAREHOUSE_MCP_POSTGRES_DSN=postgresql://mcp_reader:local-only-reader-password@127.0.0.1:55432/warehouse
+#   WAREHOUSE_MCP_SCHEMA=wikipedia warehouse-mcp --config examples/postgres.yaml
+#
+# Every password below and in docker/postgres-init.sql is a LOCAL-ONLY PLACEHOLDER: the port
+# is bound to 127.0.0.1 and the data is a public Wikipedia snapshot. Never reuse them.
+name: warehouse-mcp
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: warehouse
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local-only-superuser-password  # placeholder, local only
+    ports:
+      - "127.0.0.1:55432:5432"  # loopback only; 55432 avoids clashing with a host Postgres
+    volumes:
+      # Runs once, on first start of an empty data volume: schema and roles.
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP: the entrypoint's temporary init server listens on the socket only, so this
+      # turns healthy after the init script has run, not during it.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d warehouse"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

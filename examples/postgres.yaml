@@ -1,0 +1,14 @@
+# The demo semantic model (datasets, metrics, roles) served from Postgres instead of DuckDB.
+#
+#   docker compose up -d --wait && python scripts/load_snapshot.py
+#   export WAREHOUSE_MCP_SCHEMA=wikipedia   # tables are ${WAREHOUSE_MCP_SCHEMA}.<table>
+#   export WAREHOUSE_MCP_POSTGRES_DSN=postgresql://mcp_reader:local-only-reader-password@127.0.0.1:55432/warehouse
+#   warehouse-mcp --config examples/postgres.yaml
+#
+# Connect as mcp_reader (docker/postgres-init.sql): it holds SELECT on schema `wikipedia` and
+# nothing else. The DSN, with its password, lives in the environment, never in this file.
+extends: demo:wikipedia
+
+connection:
+  kind: postgres
+  dsn_env: WAREHOUSE_MCP_POSTGRES_DSN

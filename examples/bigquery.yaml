@@ -1,0 +1,19 @@
+# The demo semantic model (datasets, metrics, roles) served from BigQuery.
+#
+#   python scripts/load_snapshot.py --target bigquery --project my-project \
+#       --dataset wikipedia --location US
+#   export GOOGLE_CLOUD_PROJECT=my-project
+#   export WAREHOUSE_MCP_SCHEMA=my-project.wikipedia   # tables are `project.dataset`.<table>
+#   warehouse-mcp --config examples/bigquery.yaml
+#
+# Credentials come from Application Default Credentials (gcloud auth application-default
+# login, or a service account). Grant that identity only roles/bigquery.dataViewer on the
+# dataset and roles/bigquery.jobUser on the project: read access, nothing else.
+extends: demo:wikipedia
+
+connection:
+  kind: bigquery
+  project: ${GOOGLE_CLOUD_PROJECT}
+  location: US
+  # Each query is dry-run first and refused above this; BigQuery also enforces it.
+  maximum_bytes_billed: 1000000000  # 1 GB

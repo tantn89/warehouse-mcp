@@ -1,0 +1,92 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[dev,eval]"
+      - run: ruff check src tests scripts
+      - run: mypy
+
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    services:
+      # Same image and credentials as docker-compose.yml. Passwords are local-only
+      # placeholders: this container lives for one job and is reachable only from the runner.
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_DB: warehouse
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-only-superuser-password
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d warehouse"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      # Set for the whole job, so the Postgres parity and red-team tests run instead of skipping.
+      WAREHOUSE_MCP_POSTGRES_DSN: postgresql://mcp_reader:local-only-reader-password@127.0.0.1:55432/warehouse
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[dev,eval]"
+      - name: Create schema and roles
+        # Service containers start before checkout, so the init script cannot be mounted.
+        env:
+          PGPASSWORD: local-only-superuser-password
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U postgres -d warehouse
+          -f docker/postgres-init.sql
+      - name: Load the snapshot into Postgres
+        run: python scripts/load_snapshot.py
+      - run: pytest -rxXs
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Wheel ships the demo snapshot and config
+        run: |
+          set -euo pipefail
+          listing=$(unzip -l dist/*.whl)
+          for file in wikipedia.yaml data/edits.parquet data/editor_sessions.parquet \
+                      data/edits_per_minute.parquet data/bot_activity_daily.parquet \
+                      data/trending_articles.parquet data/editor_sessions_daily.parquet; do
+            grep -q "warehouse_mcp/demo/$file" <<<"$listing" || { echo "missing: $file"; exit 1; }
+          done
+          echo "$listing" | grep warehouse_mcp/demo/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
