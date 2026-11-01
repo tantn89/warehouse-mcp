@@ -19,16 +19,16 @@ written as instants.
 
 ## Cost per query
 
-Bytes scanned come from uncached dry runs. BigQuery bills at least 10 MB for each table read.
+Bytes scanned come from uncached dry runs on the final snapshot (100,932 edits). BigQuery bills at least 10 MB for each table read.
 
 | Query | Bytes scanned | Billed (10 MB minimum) |
 |---|---|---|
-| `SELECT wiki, count(*) FROM edits GROUP BY wiki` | 544 KB | 10 MB |
-| `SELECT count(DISTINCT editor) FROM edits WHERE NOT is_bot` | 554 KB | 10 MB |
-| `SELECT * FROM edits` | 9.1 MB | 10 MB |
-| `SELECT wiki, sum(edits) FROM edits_per_minute GROUP BY wiki` | 29 KB | 10 MB |
+| `SELECT wiki, count(*) FROM edits GROUP BY wiki` | 1.2 MB | 10 MB |
+| `SELECT count(DISTINCT editor) FROM edits WHERE NOT is_bot` | 1.2 MB | 10 MB |
+| `SELECT * FROM edits` | 20.4 MB | 20.4 MB |
+| `SELECT wiki, sum(edits) FROM edits_per_minute GROUP BY wiki` | 74 KB | 10 MB |
 
-At $6.25 per TiB on demand, one demo query costs about $0.00006. Typical latency was 1.2–1.9 s
+At $6.25 per TiB on demand, a typical demo query costs about $0.00006, and `SELECT *` over all edits about $0.0001. Typical latency was 1.2–1.9 s
 per query, including the dry run. Repeated queries hit BigQuery's result cache and were billed
 0 bytes.
 
