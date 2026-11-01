@@ -1,0 +1,27 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tantn89/warehouse-mcp",
+  "title": "Warehouse MCP",
+  "description": "Governed, read-only access to DuckDB, Postgres and BigQuery: semantic layer, SQL guard, row policies, PII pseudonyms, audit log.",
+  "repository": {
+    "url": "https://github.com/tantn89/warehouse-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "warehouse-mcp",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "named", "name": "--demo", "description": "Serve the bundled Wikipedia demo (no setup). Use --config <file> for your own warehouse instead." }
+      ],
+      "environmentVariables": [
+        { "name": "WAREHOUSE_MCP_POSTGRES_DSN", "description": "Postgres connection string of a read-only role (Postgres configs only).", "isRequired": false, "isSecret": true },
+        { "name": "WAREHOUSE_MCP_PII_SALT", "description": "Fixed salt for stable pseudonyms across restarts (16-128 letters or digits).", "isRequired": false, "isSecret": true },
+        { "name": "WAREHOUSE_MCP_AUDIT_LOG", "description": "Path of the JSONL audit log; stderr when unset.", "isRequired": false, "isSecret": false }
+      ]
+    }
+  ]
+}

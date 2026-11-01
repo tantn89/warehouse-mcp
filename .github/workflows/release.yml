@@ -1,0 +1,80 @@
+name: release
+
+# Push a tag like v0.1.0 to build the wheel, publish it to PyPI (trusted publishing: no stored
+# token), list the server in the MCP Registry (GitHub OIDC) and create the GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the tag matches the package and server.json versions
+        run: |
+          version=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"(.+?)\"', pathlib.Path('src/warehouse_mcp/__init__.py').read_text()).group(1))")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "::error::tag $GITHUB_REF_NAME != package $version"; exit 1; }
+          python -c "import json,sys;d=json.load(open('server.json'));v=sys.argv[1];assert d['version']==v and all(p['version']==v for p in d['packages']), 'server.json version mismatch'" "$version"
+      - run: pip install build
+      - run: python -m build
+      - name: The wheel carries the demo data
+        run: |
+          for f in edits editor_sessions edits_per_minute bot_activity_daily trending_articles editor_sessions_daily; do
+            unzip -l dist/*.whl | grep -q "warehouse_mcp/demo/data/$f.parquet" || { echo "::error::missing $f.parquet"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/warehouse-mcp
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  mcp-registry:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      # The registry checks that the PyPI package README carries `mcp-name: <server name>`.
+      - run: ./mcp-publisher publish
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md
