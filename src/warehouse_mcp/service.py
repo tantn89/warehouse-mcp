@@ -161,9 +161,12 @@ class WarehouseService:
             result = self.backend.execute(guarded.physical_sql, guarded.fetch_limit,
                                           limits.timeout_s)
         except BackendError as exc:
+            # Engine errors can quote data, e.g. "Could not convert string 'jane@x.org'".
+            # They skip the result path, so they are scrubbed here before anyone sees them.
+            safe = scrub_error(str(exc))
             self.audit.record(role=role.name, tool=tool, decision="error",
-                              sql=guarded.logical_sql, reason=str(exc))
-            raise
+                              sql=guarded.logical_sql, reason=safe)
+            raise BackendError(safe) from exc
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
         free_text = self._free_text_columns(guarded.datasets)
@@ -214,6 +217,20 @@ def _summary(dataset: Dataset) -> DatasetSummary:
                           grain=dataset.grain, time_column=dataset.time_column,
                           metrics=[MetricInfo(name=m.name, description=m.description)
                                    for m in dataset.metrics])
+
+
+_QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
+
+
+def scrub_error(message: str, max_chars: int = 300) -> str:
+    """Drop quoted values from an engine error, redact what is left, and cap its length.
+
+    Quoted identifiers go too. Column names are already in the agent's own SQL, so the
+    message keeps its use for fixing the query: the error kind and where it happened.
+    """
+    text = _QUOTED.sub("'…'", message)
+    text, _ = redact(text, phones=True)
+    return text if len(text) <= max_chars else text[:max_chars] + "…"
 
 
 def _fit_single_row(row: list[Any], max_chars: int) -> bool:

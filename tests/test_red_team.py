@@ -229,10 +229,15 @@ def test_whole_row_references_carry_the_pseudonym(service: WarehouseService) -> 
         assert named[event_id] not in text and "pii_" in text
 
 
-def test_cast_errors_show_the_pseudonym_not_the_name(service: WarehouseService) -> None:
-    with pytest.raises(BackendError) as excinfo:
-        run(service, "SELECT CAST(editor AS INTEGER) FROM edits WHERE editor IS NOT NULL")
-    assert "pii_" in str(excinfo.value)
+def test_cast_errors_quote_no_values(service: WarehouseService) -> None:
+    # Engines quote the offending value in conversion errors; the server drops quoted values,
+    # so neither the pseudonym nor, for a cleared role, the name comes back.
+    for role in ("analyst", "trust_and_safety"):
+        with pytest.raises(BackendError) as excinfo:
+            run(service, "SELECT CAST(editor AS INTEGER) FROM edits WHERE editor IS NOT NULL",
+                role)
+        message = str(excinfo.value)
+        assert "'…'" in message and "pii_" not in message and "Bot" not in message
 
 
 def test_cleared_role_is_the_positive_control(service: WarehouseService) -> None:
