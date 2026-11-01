@@ -13,6 +13,8 @@ through a governed, read-only layer:
 
 Every claim below is backed by a test or a measured run.
 
+> **Write-up:** [An alias that walked past my SQL guard: red-teaming an MCP server for warehouse access](https://dev.to/tantn89/an-alias-that-walked-past-my-sql-guard-red-teaming-an-mcp-server-for-warehouse-access-1a52)
+
 <!-- mcp-name: io.github.tantn89/warehouse-mcp -->
 
 ![ci](https://github.com/tantn89/warehouse-mcp/actions/workflows/ci.yml/badge.svg)
