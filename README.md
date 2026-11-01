@@ -115,8 +115,8 @@ The tools:
 
 ## What the red team found
 
-The adversarial suite found three real gaps. None was in the SQL guard. All three are fixed
-and kept as regression tests:
+The adversarial suite found three real gaps outside the SQL guard. All three are fixed and kept
+as regression tests:
 
 1. **ReDoS after the timeout.** The email-redaction regex backtracked quadratically, and a
    1 MB string from `repeat('x', 1000000)` would have held the server for about 12 minutes. It
@@ -130,7 +130,18 @@ and kept as regression tests:
    adds conditional PII (`pii_when: "namespace IN (2, 3)"`) for user-page titles and
    pseudonymizes edit summaries.
 
-Running the parity cases on BigQuery found a fourth problem, a correctness bug rather than a
+An independent review by a second model then found a gap the suite had missed, this time *in*
+the guard:
+
+4. **An alias could disguise a real table as a CTE.** In
+   `WITH x AS (...) SELECT * FROM edits_raw x, x`, the guard matched CTE references by alias,
+   so the physical table skipped the policy rewrite. CTE references are now resolved by table
+   name within each scope, and aliasing a real table to a visible CTE name is refused.
+5. **Engine errors quoted data.** A message such as `Could not convert string '<value>'`
+   bypassed result redaction and reached both the agent and the audit log. Error messages now
+   lose their quoted values and are redacted and capped.
+
+Running the parity cases on BigQuery found one more problem, a correctness bug rather than a
 leak: time literals were cast to `DATETIME` against `TIMESTAMP` columns. It is fixed.
 
 ## Configure your own warehouse
