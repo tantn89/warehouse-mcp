@@ -58,7 +58,7 @@ def compile_metrics_query(dataset: Dataset, metrics: list[str], dimensions: list
         projections.append(sqlglot.parse_one(known_metrics[name].sql, read="duckdb").as_(name))
 
     query = exp.select(*projections).from_(dataset.name)
-    for condition in _conditions(dataset, filters, since, until):
+    for condition in _conditions(dataset, filters, since, until, dialect):
         query = query.where(condition)
     if group_by:
         query = query.group_by(*group_by)
@@ -79,16 +79,16 @@ def _require_columns(dataset: Dataset, names: list[str]) -> None:
 
 
 def _conditions(dataset: Dataset, filters: list[Filter], since: datetime | None,
-                until: datetime | None) -> list[exp.Expr]:
+                until: datetime | None, dialect: str) -> list[exp.Expr]:
     conditions = [_condition(f) for f in filters]
     if since or until:
         if not dataset.time_column:
             raise QueryRejected(f"{dataset.name} has no time column; drop since/until.")
         column = exp.column(dataset.time_column)
         if since:
-            conditions.append(column >= _timestamp(since))
+            conditions.append(column >= _timestamp(since, dialect))
         if until:
-            conditions.append(column < _timestamp(until))
+            conditions.append(column < _timestamp(until, dialect))
     return conditions
 
 
@@ -109,9 +109,11 @@ def _condition(f: Filter) -> exp.Expr:
             "<": column.__lt__, "<=": column.__le__}[f.op](value)
 
 
-def _timestamp(value: datetime) -> exp.Expr:
+def _timestamp(value: datetime, dialect: str) -> exp.Expr:
     """A UTC timestamp literal: warehouse time columns are UTC; aware inputs are converted."""
     if value.tzinfo:
         value = value.astimezone(UTC).replace(tzinfo=None)
-    return exp.cast(exp.Literal.string(value.isoformat(sep=" ")),
-                    exp.DataType.build("timestamp"))
+    # BigQuery's TIMESTAMP is an absolute instant; sqlglot renders a plain "timestamp" cast
+    # as DATETIME there, which BigQuery refuses to compare with a TIMESTAMP column.
+    kind = "timestamptz" if dialect == "bigquery" else "timestamp"
+    return exp.cast(exp.Literal.string(value.isoformat(sep=" ")), exp.DataType.build(kind))
