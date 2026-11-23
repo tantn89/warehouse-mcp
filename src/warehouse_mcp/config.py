@@ -42,8 +42,31 @@ class BigQueryConnection(_Strict):
                                       description="Hard cap per query; BigQuery refuses above it.")
 
 
-Connection = Annotated[DuckDBConnection | PostgresConnection | BigQueryConnection,
-                       Field(discriminator="kind")]
+# Unquoted Snowflake identifiers only: they resolve case-insensitively (to upper case), so a
+# config written in any case names the same role, warehouse, database and schema.
+SnowflakeName = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_$]{0,254}$")]
+
+
+class SnowflakeConnection(_Strict):
+    kind: Literal["snowflake"]
+    account: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$",
+                         description="Account identifier, e.g. orgname-accountname.")
+    user: str = Field(min_length=1, description="A TYPE=SERVICE user with key-pair auth.")
+    role: SnowflakeName = Field(description="A role holding SELECT on the exposed tables only.")
+    warehouse: SnowflakeName
+    database: SnowflakeName
+    # `schema` is the Snowflake word; the attribute avoids shadowing BaseModel.schema.
+    schema_: SnowflakeName = Field(alias="schema")
+    private_key_file_env: str = Field(
+        default="WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE",
+        description="Environment variable holding the path of the unencrypted PKCS#8 key.")
+    statement_timeout_s: int = Field(
+        default=60, ge=1, le=3600,
+        description="Session STATEMENT_TIMEOUT_IN_SECONDS; no query runs longer than this.")
+
+
+Connection = Annotated[DuckDBConnection | PostgresConnection | BigQueryConnection
+                       | SnowflakeConnection, Field(discriminator="kind")]
 
 
 class Column(_Strict):

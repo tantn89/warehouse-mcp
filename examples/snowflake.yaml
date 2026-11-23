@@ -1,0 +1,32 @@
+# The demo semantic model (datasets, metrics, roles) served from Snowflake.
+#
+#   # once, as ACCOUNTADMIN in Snowsight: docker/snowflake-setup.sql
+#   python scripts/load_snapshot.py --target snowflake --account <orgname-accountname>
+#   export WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT=<orgname-accountname>
+#   export WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE=<path to the reader's PKCS#8 private key>
+#   export WAREHOUSE_MCP_SCHEMA=WAREHOUSE_MCP.WIKIPEDIA   # tables are database.schema.<table>
+#   warehouse-mcp --config examples/snowflake.yaml
+#
+# Least privilege, set up by docker/snowflake-setup.sql:
+# - MCP_READER_SVC is a TYPE=SERVICE user: key-pair auth only, no password, no browser login.
+# - Its role MCP_READER holds USAGE on warehouse MCP_WH, database WAREHOUSE_MCP and schema
+#   WIKIPEDIA, and SELECT on the tables in that schema. Nothing else: no CREATE on any schema
+#   (so no tables, temporary tables or stages of its own), no other database, no
+#   SNOWFLAKE.ACCOUNT_USAGE. Writes fail on grants even with every other layer bypassed.
+# - MCP_WH is an XS warehouse that suspends after 60 s idle, under a resource monitor that
+#   suspends it at a small credit quota, with a 60 s statement timeout. The backend sets the
+#   same timeout on its session and the per-query limit on each statement.
+#
+# The private key stays in a file named by an environment variable, never in this config.
+extends: demo:wikipedia
+
+connection:
+  kind: snowflake
+  account: ${WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT}
+  user: ${WAREHOUSE_MCP_SNOWFLAKE_USER:-MCP_READER_SVC}
+  role: MCP_READER
+  warehouse: MCP_WH
+  database: WAREHOUSE_MCP
+  schema: WIKIPEDIA
+  private_key_file_env: WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE
+  statement_timeout_s: 60

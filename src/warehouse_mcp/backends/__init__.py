@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from warehouse_mcp.backends.base import Backend, BackendError, QueryResult
-from warehouse_mcp.config import BigQueryConnection, Connection, DuckDBConnection
+from warehouse_mcp.config import (
+    BigQueryConnection,
+    Connection,
+    DuckDBConnection,
+    SnowflakeConnection,
+)
 
 __all__ = ["Backend", "BackendError", "QueryResult", "open_backend"]
 
@@ -13,6 +18,10 @@ def open_backend(connection: Connection) -> Backend:
         from warehouse_mcp.backends.duckdb_backend import DuckDBBackend
 
         return DuckDBBackend(connection.path)
+    if isinstance(connection, SnowflakeConnection):
+        from warehouse_mcp.backends.snowflake_backend import SnowflakeBackend
+
+        return SnowflakeBackend(connection)
     if isinstance(connection, BigQueryConnection):
         from warehouse_mcp.backends.bigquery_backend import BigQueryBackend
 
