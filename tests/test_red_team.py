@@ -146,6 +146,53 @@ def test_table_statement_is_refused_or_read_through_the_policy(
     assert out.rows and not {str(row[editor]) for row in out.rows} & (RAW_EDITORS | RAW_EDITOR_MD5)
 
 
+# --- Snowflake: stages, table functions, account metadata, session and time travel -------
+
+# Refused by the guard on every engine; on Snowflake these are the reads and calls the
+# platform offers beyond plain SQL. tests/test_snowflake_offline.py also runs them through
+# the guard in the snowflake dialect, without an account.
+SNOWFLAKE_ATTACKS = [
+    "SELECT $1 FROM @mcp_stage",
+    "SELECT $1, $2 FROM @~/exported.csv.gz",
+    "SELECT * FROM @%edits",
+    "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))",
+    "SELECT * FROM edits, TABLE(GENERATOR(ROWCOUNT => 1000000000))",
+    "SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[1, 2]')))",
+    "SELECT * FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY())",
+    "SELECT SYSTEM$WAIT(60) FROM edits",
+    "SELECT SYSTEM$ALLOWLIST() FROM edits",
+    "SELECT * FROM INFORMATION_SCHEMA.TABLES",
+    "SELECT * FROM WAREHOUSE_MCP.INFORMATION_SCHEMA.COLUMNS",
+    "SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY",
+    "SELECT CURRENT_ROLE() FROM edits",
+    "SELECT CURRENT_ACCOUNT() FROM edits",
+    "SELECT CURRENT_WAREHOUSE(), CURRENT_SESSION() FROM edits",
+    "SELECT LAST_QUERY_ID() FROM edits",
+    "CALL SYSTEM$CANCEL_ALL_QUERIES(1)",
+    "EXECUTE IMMEDIATE 'DROP TABLE edits'",
+    "USE ROLE ACCOUNTADMIN",
+    "USE SECONDARY ROLES ALL",
+    "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = 0",
+    "SELECT GET_DDL('TABLE', 'EDITS') FROM edits",
+    "SELECT * FROM IDENTIFIER('EDITS')",
+    "SELECT * FROM edits AT(OFFSET => -3600)",
+    "SELECT * FROM edits BEFORE(STATEMENT => '01b2c3d4-0000-0000-0000-000000000000')",
+    "SELECT * FROM edits AT(TIMESTAMP => '2026-11-01 00:00:00'::TIMESTAMP_NTZ)",
+    "SELECT * FROM edits CHANGES(INFORMATION => DEFAULT) AT(OFFSET => -60)",
+    "PUT file:///etc/passwd @~",
+    "LIST @~",
+    "SHOW GRANTS",
+    "COPY INTO @~/out FROM edits",
+]
+
+
+@pytest.mark.parametrize("sql", SNOWFLAKE_ATTACKS)
+def test_snowflake_specific_reads_and_calls_are_rejected(service: WarehouseService,
+                                                         sql: str) -> None:
+    with pytest.raises(QueryRejected):
+        run(service, sql, "enwiki_partner")
+
+
 def test_semicolons_and_comment_markers_inside_strings_are_data(
         service: WarehouseService) -> None:
     out = run(service, "SELECT count(*) FROM edits WHERE title = 'a; DROP TABLE edits; --' "
