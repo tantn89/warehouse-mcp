@@ -8,7 +8,7 @@ checked live in tests/test_snowflake_parity.py.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,8 @@ class FakeCursor:
 
     def execute(self, sql: str) -> FakeCursor:
         self._conn.executed.append((sql, dict(self._params)))
+        if self._conn.on_execute is not None:
+            self._conn.on_execute()
         if self._conn.error is not None:
             raise self._conn.error
         self.description = [(name, 0) for name in self._conn.columns]
@@ -69,8 +71,12 @@ class FakeConnection:
         self.closed_cursors = 0
         self.closed = False
         self.connect_calls: list[dict[str, Any]] = []
+        self.cursor_error: Exception | None = None  # e.g. the connector's closed connection
+        self.on_execute: Callable[[], None] | None = None
 
     def cursor(self) -> FakeCursor:
+        if self.cursor_error is not None:
+            raise self.cursor_error
         return FakeCursor(self)
 
     def close(self) -> None:
