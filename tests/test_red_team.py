@@ -125,7 +125,6 @@ def test_file_network_and_system_functions_are_rejected(service: WarehouseServic
     "CALL pg_catalog.pg_reload_conf()",
     "DO $$ BEGIN PERFORM 1; END $$",
     "PREPARE p AS SELECT 1",
-    "TABLE edits",
     "EXPLAIN ANALYZE SELECT * FROM edits",
     "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r) SELECT * FROM r, edits",
 ])
@@ -133,6 +132,18 @@ def test_writes_and_smuggled_statements_are_rejected(service: WarehouseService,
                                                      sql: str) -> None:
     with pytest.raises(QueryRejected):
         run(service, sql)
+
+
+def test_table_statement_is_refused_or_read_through_the_policy(
+        service: WarehouseService) -> None:
+    # `TABLE edits` is shorthand for SELECT * FROM edits. Older sqlglot releases could not parse
+    # it, newer ones read it as that SELECT; either way no raw editor name may come back.
+    try:
+        out = run(service, "TABLE edits")
+    except QueryRejected:
+        return
+    editor = out.columns.index("editor")
+    assert out.rows and not {str(row[editor]) for row in out.rows} & (RAW_EDITORS | RAW_EDITOR_MD5)
 
 
 def test_semicolons_and_comment_markers_inside_strings_are_data(
