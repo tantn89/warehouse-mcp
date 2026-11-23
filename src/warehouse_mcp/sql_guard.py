@@ -161,7 +161,9 @@ def _dataset_references(root: exp.Expr, settings: Settings, role: Role,
                         dialect: str) -> list[tuple[exp.Table, Dataset]]:
     available = ", ".join(d.name for d in settings.datasets if role.can_read(d.name))
     cte_refs = _cte_references(root, settings, dialect)
-    if root.find(exp.TableFromRows):  # Snowflake TABLE(...): RESULT_SCAN, GENERATOR, FLATTEN
+    # Snowflake TABLE(...) (RESULT_SCAN, GENERATOR, FLATTEN) and LATERAL over a function.
+    if root.find(exp.TableFromRows) or any(not isinstance(lateral.this, exp.Subquery)
+                                           for lateral in root.find_all(exp.Lateral)):
         raise QueryRejected("Table functions are not allowed in FROM; query the datasets: "
                             f"{available}.")
     references = []

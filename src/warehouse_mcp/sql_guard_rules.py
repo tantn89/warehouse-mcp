@@ -28,6 +28,8 @@ DENIED_FUNCTIONS = {
     "CurrentAccountName", "CurrentOrganizationName", "CurrentOrganizationUser", "CurrentRegion",
     "CurrentWarehouse", "CurrentSession", "CurrentStatement", "CurrentTransaction",
     "CurrentClient", "CurrentIpAddress", "CurrentUserId",
+    # Row-generating table functions, reachable through LATERAL as well as FROM.
+    "SplitToTable", "StrtokSplitToTable", "Inline", "Posexplode", "PosexplodeOuter", "Stack",
 }
 
 # A dataset reference may carry its name, qualifiers (refused separately) and a plain alias,
