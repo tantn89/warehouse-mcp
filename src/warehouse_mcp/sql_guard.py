@@ -21,21 +21,21 @@ from dataclasses import dataclass
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.dialects.dialect import Dialect
-from sqlglot.errors import OptimizeError, ParseError
-from sqlglot.optimizer.scope import traverse_scope
+from sqlglot.errors import ParseError
 
 from warehouse_mcp.config import Dataset, Role, Settings
+from warehouse_mcp.sql_guard_cte import cte_references
 from warehouse_mcp.sql_guard_rules import (
     DEFAULT_ALLOWED_FUNCTIONS,
     DENIED_FUNCTIONS,
     FORBIDDEN_NODES,
+    QueryRejected,
     refused_table_clause,
 )
 
-
-class QueryRejected(Exception):
-    """The query was refused before reaching the warehouse. The message is safe to show."""
+# QueryRejected lives with the rules so sql_guard_cte.py can raise it; callers import it here.
+__all__ = ["DEFAULT_ALLOWED_FUNCTIONS", "GuardedQuery", "QueryRejected", "guard_query",
+           "policy_source", "pseudonym"]
 
 
 @dataclass(frozen=True)
@@ -98,69 +98,10 @@ def _check_functions(root: exp.Expr, settings: Settings) -> None:
                                 "declared datasets.")
 
 
-def _cte_references(root: exp.Expr, settings: Settings, dialect: str) -> set[int]:
-    """ids of the Table nodes that refer to a CTE.
-
-    A table refers to a CTE when its *name* is a CTE visible in its own scope. Three shortcuts
-    are wrong and were all exploitable:
-    - a global name match: in `WITH t AS (SELECT * FROM t)` the inner `t` is the real table t;
-    - the alias: in `WITH x AS (...) SELECT * FROM secret_table x` the real table is aliased
-      to the CTE's name;
-    - a case-insensitive match: in Postgres `WITH "EDITS" AS (...) SELECT * FROM edits`, and
-      in Snowflake `WITH "edits" AS (...)`, the engine does not resolve `edits` to the CTE but
-      to the real table, which then skipped the policy rewrite.
-    Names are compared the way the engine resolves them (sqlglot's identifier normalization
-    for the dialect). Where that and a case-insensitive comparison disagree, the query is
-    refused instead of guessed at, and so is aliasing a real table to a visible CTE name.
-    """
-    if any(w.args.get("recursive") for w in root.find_all(exp.With)):
-        raise QueryRejected("WITH RECURSIVE is not allowed.")
-    normalize = Dialect.get_or_raise(dialect).normalize_identifier
-
-    def key(identifier: exp.Identifier) -> str:
-        return normalize(identifier.copy()).name
-
-    # A CTE named like a dataset must resolve exactly as the dataset name written plainly
-    # would; `"EDITS"` (Postgres) or `"edits"` (Snowflake) is never needed.
-    datasets = {d.name: key(exp.to_identifier(d.name)) for d in settings.datasets}
-    for cte in root.find_all(exp.CTE):
-        name = cte.args["alias"].this
-        plain = datasets.get(name.name.lower())
-        if plain is not None and key(name) != plain:
-            raise QueryRejected(f"CTE name {cte.alias!r} differs from the dataset "
-                                f"{name.name.lower()} only by case; use another name.")
-    try:
-        scopes = traverse_scope(root)
-    except OptimizeError as exc:
-        raise QueryRejected(f"Could not resolve the query's tables: {exc}") from exc
-    cte_refs: set[int] = set()
-    for scope in scopes:
-        visible = {}
-        for name, source in scope.cte_sources.items():
-            node = source.expression.parent  # the CTE node; its alias keeps the quoting
-            if not isinstance(node, exp.CTE):
-                raise QueryRejected(f"Could not resolve the CTE {name!r}.")
-            visible[name.lower()] = key(node.args["alias"].this)
-        for table in scope.tables:
-            if (table.args.get("db") or table.args.get("catalog")
-                    or not isinstance(table.this, exp.Identifier)):
-                continue  # qualified names and table functions: never a CTE; rejected later
-            cte_key = visible.get(table.name.lower())
-            if cte_key is not None:
-                if key(table.this) != cte_key:
-                    raise QueryRejected(f"Table {table.name!r} and the CTE of that name differ "
-                                        "only by case or quoting; use one spelling.")
-                cte_refs.add(id(table))
-            elif table.alias and table.alias.lower() in visible:
-                raise QueryRejected(f"Alias {table.alias!r} hides the CTE of the same name; "
-                                    "use a different alias.")
-    return cte_refs
-
-
 def _dataset_references(root: exp.Expr, settings: Settings, role: Role,
                         dialect: str) -> list[tuple[exp.Table, Dataset]]:
     available = ", ".join(d.name for d in settings.datasets if role.can_read(d.name))
-    cte_refs = _cte_references(root, settings, dialect)
+    cte_refs = cte_references(root, settings, dialect)
     # Snowflake TABLE(...) (RESULT_SCAN, GENERATOR, FLATTEN) and LATERAL over a function.
     if root.find(exp.TableFromRows) or any(not isinstance(lateral.this, exp.Subquery)
                                            for lateral in root.find_all(exp.Lateral)):
