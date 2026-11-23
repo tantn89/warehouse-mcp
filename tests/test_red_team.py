@@ -186,6 +186,10 @@ SNOWFLAKE_ATTACKS = [
     "SELECT * FROM edits BEFORE(STATEMENT => '01b2c3d4-0000-0000-0000-000000000000')",
     "SELECT * FROM edits AT(TIMESTAMP => '2026-11-01 00:00:00'::TIMESTAMP_NTZ)",
     "SELECT * FROM edits CHANGES(INFORMATION => DEFAULT) AT(OFFSET => -60)",
+    "SELECT * FROM edits SAMPLE (10)",
+    "SELECT * FROM edits PIVOT (count(event_id) FOR wiki IN ('enwiki', 'dewiki'))",
+    "SELECT * FROM (edits JOIN edits_per_minute ON true)",
+    "SELECT a, b FROM edits AS e(a, b)",
     "PUT file:///etc/passwd @~",
     "LIST @~",
     "SHOW GRANTS",
@@ -255,6 +259,19 @@ def test_cte_names_differing_by_case_cannot_unmask_a_table(service: WarehouseSer
     assert not {str(v) for v in cells(out)} & (RAW_EDITORS | RAW_EDITOR_MD5)
     if "wiki" in out.columns:
         assert {row[out.columns.index("wiki")] for row in out.rows} <= {"enwiki"}
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT DISTINCT wiki FROM edits TABLESAMPLE 50%",
+    "SELECT * FROM edits PIVOT (count(*) FOR wiki IN ('enwiki', 'dewiki'))",
+    "SELECT DISTINCT wiki FROM (edits JOIN edits_per_minute ON true)",
+    "SELECT a, b FROM edits AS e(a, b)",
+])
+def test_table_clauses_the_policy_rewrite_would_drop_are_rejected(service: WarehouseService,
+                                                                  sql: str) -> None:
+    # The rewrite swaps the table for its policy view; a clause on the table would vanish.
+    with pytest.raises(QueryRejected):
+        run(service, sql, "enwiki_partner")
 
 
 @pytest.mark.parametrize("predicate", [
