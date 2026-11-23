@@ -1,7 +1,8 @@
 """Red team: what an agent, or a prompt-injected one, might try against the governed tools.
 
-Every attempt runs through WarehouseService on the demo snapshot, on DuckDB always and on
-Postgres when WAREHOUSE_MCP_POSTGRES_DSN is set. Each must be refused by the guard, or come
+Every attempt runs through WarehouseService on the demo snapshot: on DuckDB always, on
+Postgres when WAREHOUSE_MCP_POSTGRES_DSN is set, and on Snowflake when
+WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT and _KEY_FILE are set. Each must be refused by the guard, or come
 back without raw editor names and without rows outside the caller's row filter.
 Gaps this suite found (a ReDoS in redaction, an uncapped single row, pseudonyms relinked
 through user-page titles) are fixed and kept here as regressions.
@@ -19,6 +20,7 @@ import duckdb
 import pytest
 
 from test_postgres_parity import POSTGRES_DSN, SALT, duckdb_demo_service, postgres_demo_service
+from test_snowflake_parity import SNOWFLAKE_ENABLED, snowflake_demo_service
 from warehouse_mcp.backends import BackendError
 from warehouse_mcp.config import Limits
 from warehouse_mcp.service import QueryOutput, WarehouseService
@@ -39,7 +41,7 @@ RAW_EDITORS = _raw_editors()
 RAW_EDITOR_MD5 = {hashlib.md5(n.encode()).hexdigest() for n in RAW_EDITORS}
 
 
-@pytest.fixture(scope="module", params=["duckdb", "postgres"])
+@pytest.fixture(scope="module", params=["duckdb", "postgres", "snowflake"])
 def service(request: pytest.FixtureRequest,
             tmp_path_factory: pytest.TempPathFactory) -> Iterator[WarehouseService]:
     directory = tmp_path_factory.mktemp(f"red-team-{request.param}")
@@ -47,6 +49,11 @@ def service(request: pytest.FixtureRequest,
         if not POSTGRES_DSN:
             pytest.skip("set WAREHOUSE_MCP_POSTGRES_DSN to run the suite on Postgres")
         svc = postgres_demo_service(directory, LIMITS)
+    elif request.param == "snowflake":
+        if not SNOWFLAKE_ENABLED:
+            pytest.skip("set WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT and _KEY_FILE to run the suite on "
+                        "Snowflake")
+        svc = snowflake_demo_service(directory, LIMITS)
     else:
         svc = duckdb_demo_service(directory, LIMITS)
     yield svc
