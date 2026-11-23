@@ -7,9 +7,18 @@
 --   WAREHOUSE_OWNER  owns schema WAREHOUSE_MCP.WIKIPEDIA and loads it. Never given to the MCP
 --                    server.
 --   MCP_READER       what the MCP server connects as: USAGE on one warehouse, database and
---                    schema, and SELECT on the schema's tables, nothing else. No CREATE on any
---                    schema, so no tables, temporary tables or stages of its own. Writes fail
---                    on grants even if every other layer (SQL guard, backend) were bypassed.
+--                    schema, and SELECT on the schema's tables. No CREATE privilege anywhere,
+--                    so writes to the warehouse's tables and new permanent tables or stages
+--                    fail on grants even if the SQL guard were bypassed.
+--
+-- What grants cannot close, and what closes it instead:
+--   - Temporary tables need no CREATE TABLE privilege, and every user has a user stage (@~)
+--     that no grant controls. Both are private to the session or user and are refused by
+--     the SQL guard (CREATE, PUT, COPY, stage reads). Unloading data to any internal stage,
+--     @~ included, and to inline URLs is switched off on the reader user below.
+--   - Every role inherits PUBLIC. Many accounts, trials included, grant PUBLIC imported
+--     privileges on SNOWFLAKE_SAMPLE_DATA. SHOW GRANTS TO ROLE PUBLIC at the end lists what
+--     the reader inherits; the SQL guard reads declared datasets only, whatever PUBLIC holds.
 --
 -- Cost, three layers:
 --   MCP_WH           an XS warehouse that starts suspended and suspends after 60 s idle, with
@@ -55,8 +64,8 @@ ALTER WAREHOUSE MCP_WH SET RESOURCE_MONITOR = MCP_MONITOR;
 GRANT USAGE ON WAREHOUSE MCP_WH TO ROLE WAREHOUSE_OWNER;
 GRANT USAGE ON WAREHOUSE MCP_WH TO ROLE MCP_READER;
 
--- Storage. The owner role owns the schema, so it can create and replace the tables. PUBLIC
--- gets nothing: no grants are made to it here, and Snowflake grants it none by default.
+-- Storage. The owner role owns the schema, so it can create and replace the tables. No grant
+-- is made to PUBLIC here; see the check at the end for what the account already gives it.
 CREATE DATABASE IF NOT EXISTS WAREHOUSE_MCP COMMENT = 'warehouse-mcp demo snapshot';
 CREATE SCHEMA IF NOT EXISTS WAREHOUSE_MCP.WIKIPEDIA;
 GRANT OWNERSHIP ON SCHEMA WAREHOUSE_MCP.WIKIPEDIA TO ROLE WAREHOUSE_OWNER COPY CURRENT GRANTS;
@@ -90,10 +99,16 @@ CREATE USER IF NOT EXISTS MCP_READER_SVC
   RSA_PUBLIC_KEY = '<paste the reader public key here>'
   COMMENT = 'warehouse-mcp: the MCP server, read-only';
 ALTER USER MCP_READER_SVC SET STATEMENT_TIMEOUT_IN_SECONDS = 60;
+-- User-level parameters: no COPY INTO @~ (or any internal stage) and no COPY INTO 's3://...'.
+ALTER USER MCP_READER_SVC SET PREVENT_UNLOAD_TO_INTERNAL_STAGES = TRUE;
+ALTER USER MCP_READER_SVC SET PREVENT_UNLOAD_TO_INLINE_URL = TRUE;
 GRANT ROLE MCP_READER TO USER MCP_READER_SVC;
 
--- Check: the reader holds USAGE x3 and SELECT, and nothing else.
+-- Check: the reader holds USAGE x3 and SELECT, plus whatever PUBLIC holds (not listed by
+-- SHOW GRANTS TO ROLE MCP_READER), and the unload parameters are set.
 SHOW GRANTS TO ROLE MCP_READER;
+SHOW GRANTS TO ROLE PUBLIC;
+SHOW PARAMETERS LIKE 'PREVENT_UNLOAD%' IN USER MCP_READER_SVC;
 SHOW FUTURE GRANTS IN SCHEMA WAREHOUSE_MCP.WIKIPEDIA;
 
 -- Teardown after the trial run (as ACCOUNTADMIN):

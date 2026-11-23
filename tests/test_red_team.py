@@ -198,6 +198,7 @@ SNOWFLAKE_ATTACKS = [
     "LIST @~",
     "SHOW GRANTS",
     "COPY INTO @~/out FROM edits",
+    "CREATE TEMPORARY TABLE pwned AS SELECT * FROM edits",  # needs no CREATE TABLE grant
 ]
 
 

@@ -70,7 +70,6 @@ def test_duckdb_and_snowflake_agree(engines: tuple[WarehouseService, WarehouseSe
     f"DELETE FROM {TABLES}.EDITS",
     f"DROP TABLE {TABLES}.EDITS",
     f"CREATE TABLE {TABLES}.PWNED (X INT)",
-    f"CREATE TEMPORARY TABLE {TABLES}.PWNED (X INT)",
     f"CREATE STAGE {TABLES}.PWNED",
     "CREATE DATABASE PWNED",
 ])
@@ -79,6 +78,29 @@ def test_reader_grants_refuse_writes(engines: tuple[WarehouseService, WarehouseS
     # Straight through the connector as MCP_READER: only the grants are left to refuse.
     with pytest.raises(BackendError, match=r"(?i)insufficient privileges"):
         engines[1].backend.execute(statement, 1, 10)
+
+
+def test_unloading_to_the_user_stage_is_switched_off(
+        engines: tuple[WarehouseService, WarehouseService]) -> None:
+    # The user stage needs no grant; PREVENT_UNLOAD_TO_INTERNAL_STAGES on the user closes it.
+    with pytest.raises(BackendError, match=r"(?i)unload|internal stage"):
+        engines[1].backend.execute(f"COPY INTO @~/dump FROM {TABLES}.EDITS", 1, 10)
+
+
+# --- What the account's PUBLIC role gives every role: recorded, not asserted away ------
+
+def test_public_grants_are_visible_to_the_reader(
+        engines: tuple[WarehouseService, WarehouseService]) -> None:
+    # Grants cannot hide PUBLIC's shares (often SNOWFLAKE_SAMPLE_DATA on trial accounts); the
+    # guard is what keeps them out of reach of agents. Printed for docs/snowflake-run.md.
+    databases = engines[1].backend.execute("SHOW DATABASES", 100, 10)
+    print(json.dumps({"databases_visible_to_reader": [str(row[1]) for row in databases.rows]}))
+    try:
+        sample = engines[1].backend.execute(
+            "SELECT count(*) FROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.NATION", 1, 10)
+        print(json.dumps({"sample_data_readable": True, "rows": sample.rows[0][0]}))
+    except BackendError as exc:
+        print(json.dumps({"sample_data_readable": False, "error": str(exc)}))
 
 
 def test_statement_timeout_cancels_on_the_server(
