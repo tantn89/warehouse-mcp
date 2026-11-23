@@ -4,7 +4,7 @@
 #   python scripts/load_snapshot.py --target snowflake --account <orgname-accountname>
 #   export WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT=<orgname-accountname>
 #   export WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE=<path to the reader's PKCS#8 private key>
-#   export WAREHOUSE_MCP_SCHEMA=WAREHOUSE_MCP.WIKIPEDIA   # tables are database.schema.<table>
+#   export WAREHOUSE_MCP_SCHEMA=WAREHOUSE_MCP.WIKIPEDIA   # required, see below
 #   warehouse-mcp --config examples/snowflake.yaml
 #
 # Least privilege, set up by docker/snowflake-setup.sql:
@@ -17,6 +17,8 @@
 #   suspends it at a small credit quota, with a 60 s statement timeout. The backend sets the
 #   same timeout on its session and the per-query limit on each statement.
 #
+# The session gets no current database or schema, so tables must be database.schema.<table>:
+# a reference that escaped the guard's rewrite then resolves to nothing instead of a raw table.
 # The private key stays in a file named by an environment variable, never in this config.
 extends: demo:wikipedia
 
@@ -26,7 +28,5 @@ connection:
   user: ${WAREHOUSE_MCP_SNOWFLAKE_USER:-MCP_READER_SVC}
   role: MCP_READER
   warehouse: MCP_WH
-  database: WAREHOUSE_MCP
-  schema: WIKIPEDIA
   private_key_file_env: WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE
   statement_timeout_s: 60

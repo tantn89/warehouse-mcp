@@ -26,7 +26,7 @@ from warehouse_mcp.service import scrub_error  # noqa: E402
 KEY_ENV = "WAREHOUSE_MCP_TEST_SNOWFLAKE_KEY_FILE"
 CONNECTION = SnowflakeConnection.model_validate({
     "kind": "snowflake", "account": "acme-demo", "user": "MCP_READER_SVC", "role": "MCP_READER",
-    "warehouse": "MCP_WH", "database": "WAREHOUSE_MCP", "schema": "WIKIPEDIA",
+    "warehouse": "MCP_WH",
     "private_key_file_env": KEY_ENV, "statement_timeout_s": 60})
 
 
@@ -106,9 +106,10 @@ def test_connects_with_key_pair_auth_and_pinned_session(fake: FakeConnection,
     assert kwargs["private_key_file"] == str(key_file)
     assert not {"password", "private_key", "token"} & set(kwargs)
     assert kwargs["client_session_keep_alive"] is False
-    assert (kwargs["account"], kwargs["user"], kwargs["role"], kwargs["warehouse"],
-            kwargs["database"], kwargs["schema"]) == ("acme-demo", "MCP_READER_SVC", "MCP_READER",
-                                                      "MCP_WH", "WAREHOUSE_MCP", "WIKIPEDIA")
+    assert (kwargs["account"], kwargs["user"], kwargs["role"], kwargs["warehouse"]) == (
+        "acme-demo", "MCP_READER_SVC", "MCP_READER", "MCP_WH")
+    # No current database or schema: an unrewritten reference resolves to nothing.
+    assert not {"database", "schema"} & set(kwargs)
     assert kwargs["session_parameters"] == {
         "QUERY_TAG": "warehouse-mcp", "STATEMENT_TIMEOUT_IN_SECONDS": 60, "TIMEZONE": "UTC",
         "TIMESTAMP_TYPE_MAPPING": "TIMESTAMP_NTZ"}
@@ -203,10 +204,11 @@ def test_table_columns_are_lower_cased(fake: FakeConnection) -> None:
 
 def test_a_missing_table_is_a_config_mismatch_not_a_crash(fake: FakeConnection) -> None:
     fake.error = snowflake_errors.ProgrammingError(msg="Object does not exist", errno=2003)
-    assert SnowflakeBackend(CONNECTION).table_columns("WIKIPEDIA.nope") == {}
+    assert SnowflakeBackend(CONNECTION).table_columns("WAREHOUSE_MCP.WIKIPEDIA.nope") == {}
 
 
-@pytest.mark.parametrize("table", ["edits; DROP TABLE x", '"Quoted".edits', "a.b.c.d", ""])
+@pytest.mark.parametrize("table", ["edits; DROP TABLE x", '"Quoted".a.edits', "a.b.c.d", "",
+                                   "edits", "WIKIPEDIA.edits"])
 def test_table_names_from_the_config_are_validated(fake: FakeConnection, table: str) -> None:
     with pytest.raises(BackendError):
         SnowflakeBackend(CONNECTION).table_columns(table)
