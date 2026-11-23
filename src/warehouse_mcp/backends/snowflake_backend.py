@@ -18,25 +18,35 @@ fetching them from QUERY_HISTORY would cost a second query per call.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import re
+import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from warehouse_mcp.backends.base import BackendError, QueryResult
 from warehouse_mcp.config import SnowflakeConnection
 
 try:
     import snowflake.connector
+    from snowflake.connector import Connection
+    from snowflake.connector import SnowflakeCursor as Cursor
     from snowflake.connector import errors as snowflake_errors
 except ImportError as exc:  # pragma: no cover - exercised only without the extra installed
     raise ImportError("Snowflake support needs: pip install 'warehouse-mcp[snowflake]'") from exc
 
+T = TypeVar("T")
 QUERY_TAG = "warehouse-mcp"
 # "Statement reached its statement or warehouse timeout of N second(s) and was canceled."
 _TIMEOUT_ERRNO = 630
 _TIMEOUT_SQLSTATE = "57014"
 _OBJECT_MISSING_ERRNO = 2003  # "Object ... does not exist or not authorized."
+# The session is gone, so the statement never ran: 390112 session expired, 390114
+# authentication token expired, 250002 the connector's "Connection is closed".
+_SESSION_GONE_ERRNOS = frozenset({390112, 390114, 250002})
 # A physical table from the config: database.schema.table, unquoted identifiers only.
 _TABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){2}")
 # Snowflake messages can carry the account host and query or request ids. None of them help an
@@ -57,22 +67,29 @@ class SnowflakeBackend:
         if not Path(key_file).is_file():
             raise BackendError(f"The private key file named by {env} does not exist.")
         self._settings = connection
+        self._key_file = key_file
         self._max_timeout_s = connection.statement_timeout_s
+        self._lock = threading.Lock()
+        self._conn = self._connect()
+
+    def _connect(self) -> Connection:
+        settings = self._settings
         try:
-            self._conn = snowflake.connector.connect(
-                account=connection.account, user=connection.user, role=connection.role,
-                warehouse=connection.warehouse,
-                authenticator="SNOWFLAKE_JWT", private_key_file=key_file,
-                # No heartbeat thread: an idle server lets its session expire instead of
-                # keeping one open on the account.
+            return snowflake.connector.connect(
+                account=settings.account, user=settings.user, role=settings.role,
+                warehouse=settings.warehouse, authenticator="SNOWFLAKE_JWT",
+                private_key_file=self._key_file,
+                # No heartbeat: it would hold a session open on the account for as long as the
+                # server runs, idle or not. An expired session is replaced on the next call
+                # instead (see _call), which costs one login after a long idle period.
                 client_session_keep_alive=False,
                 login_timeout=30,
                 # Client-side backstop if the server-side cancel never arrives.
-                query_timeout=connection.statement_timeout_s + 15,
+                query_timeout=settings.statement_timeout_s + 15,
                 application=QUERY_TAG,
                 session_parameters={
                     "QUERY_TAG": QUERY_TAG,
-                    "STATEMENT_TIMEOUT_IN_SECONDS": connection.statement_timeout_s,
+                    "STATEMENT_TIMEOUT_IN_SECONDS": settings.statement_timeout_s,
                     # Pinned so results and literals do not depend on account defaults: the
                     # snapshot's times are naive UTC, loaded as TIMESTAMP_NTZ.
                     "TIMEZONE": "UTC",
@@ -81,12 +98,41 @@ class SnowflakeBackend:
         except snowflake_errors.Error as exc:
             raise BackendError(f"Could not connect to Snowflake: {self._message(exc)}") from exc
 
+    def _call(self, work: Callable[[Cursor], T]) -> T:
+        """Run `work` on a fresh cursor; once, on a new session if the old one is gone.
+
+        Only the errors that mean the session no longer exists trigger the retry, so the
+        statement did not run; it is a read in any case. The lock makes concurrent calls that
+        hit the same dead session reconnect once, not once each.
+        """
+        conn = self._conn
+        try:
+            return self._on_cursor(conn, work)
+        except snowflake_errors.Error as exc:
+            if exc.errno not in _SESSION_GONE_ERRNOS:
+                raise
+        with self._lock:
+            if self._conn is conn:
+                with contextlib.suppress(snowflake_errors.Error):  # already unusable
+                    conn.close()
+                self._conn = self._connect()
+            conn = self._conn
+        return self._on_cursor(conn, work)
+
+    @staticmethod
+    def _on_cursor(conn: Connection, work: Callable[[Cursor], T]) -> T:
+        # One cursor per call: the connection is shared across worker threads, cursors are not.
+        cursor = conn.cursor()
+        try:
+            return work(cursor)
+        finally:
+            cursor.close()
+
     def execute(self, sql: str, max_rows: int, timeout_s: float) -> QueryResult:
         # Snowflake counts whole seconds; never exceed the session cap set at connect time.
         seconds = max(1, min(math.ceil(timeout_s), self._max_timeout_s))
-        # One cursor per call: the connection is shared across worker threads, cursors are not.
-        cursor = self._conn.cursor()
-        try:
+
+        def run(cursor: Cursor) -> QueryResult:
             # The connector accepts but ignores execute(timeout=...); a statement parameter is
             # enforced by the server, which cancels the query and frees the warehouse.
             cursor.set_statement_parameter("STATEMENT_TIMEOUT_IN_SECONDS", seconds)
@@ -94,32 +140,35 @@ class SnowflakeBackend:
             rows = cursor.fetchmany(max_rows)
             # Snowflake upper-cases unquoted names (EDITOR, COUNT(*)). Every name is lower-cased,
             # quoted mixed-case aliases too: agents see the config's lower-case column names,
-            # and results match DuckDB, Postgres and BigQuery column for column.
+            # and results match DuckDB, Postgres and BigQuery column for column. Two aliases
+            # that differ only by case come back with the same name; nothing keys on them.
             columns = [str(d[0]).lower() for d in cursor.description or []]
+            return QueryResult(columns=columns, rows=[tuple(row) for row in rows])
+
+        try:
+            return self._call(run)
         except snowflake_errors.Error as exc:
             if exc.errno == _TIMEOUT_ERRNO or exc.sqlstate == _TIMEOUT_SQLSTATE:
                 raise BackendError(f"Query exceeded the {seconds}s limit; narrow the time "
                                    "range or aggregate more.") from exc
             raise BackendError(self._message(exc)) from exc
-        finally:
-            cursor.close()
-        return QueryResult(columns=columns, rows=[tuple(row) for row in rows[:max_rows]])
 
     def table_columns(self, table: str) -> dict[str, str]:
         if not _TABLE.fullmatch(table):
             raise BackendError(f"Table {table!r} must be database.schema.table with unquoted "
                                "identifiers: the session has no current database or schema.")
-        cursor = self._conn.cursor()
-        try:
+
+        def describe(cursor: Cursor) -> dict[str, str]:
             cursor.execute(f"DESCRIBE TABLE {table}")
             # DESCRIBE TABLE rows start with (name, type, kind, ...).
             return {str(row[0]).lower(): str(row[1]) for row in cursor.fetchall()}
+
+        try:
+            return self._call(describe)
         except snowflake_errors.Error as exc:
             if exc.errno == _OBJECT_MISSING_ERRNO:
                 return {}  # the service reports a missing table as a config mismatch
             raise BackendError(self._message(exc)) from exc
-        finally:
-            cursor.close()
 
     def close(self) -> None:
         self._conn.close()
