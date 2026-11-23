@@ -30,7 +30,7 @@ from warehouse_mcp.sql_guard_rules import (
     DEFAULT_ALLOWED_FUNCTIONS,
     DENIED_FUNCTIONS,
     FORBIDDEN_NODES,
-    VERSION_CLAUSES,
+    refused_table_clause,
 )
 
 
@@ -169,9 +169,9 @@ def _dataset_references(root: exp.Expr, settings: Settings, role: Role,
         if not isinstance(table.this, exp.Identifier):  # stages (@stage), IDENTIFIER(), calls
             raise QueryRejected("Table functions are not allowed in FROM; query the datasets: "
                                 f"{available}.")
-        if any(table.args.get(clause) for clause in VERSION_CLAUSES):
-            raise QueryRejected("Time travel (AT, BEFORE, CHANGES, FOR SYSTEM_TIME) is not "
-                                "allowed: queries read the current data of each dataset.")
+        refusal = refused_table_clause(table)
+        if refusal:
+            raise QueryRejected(refusal)
         if table.args.get("db") or table.args.get("catalog"):
             raise QueryRejected(f"Use dataset names without a schema prefix: {available}.")
         if id(table) in cte_refs:
