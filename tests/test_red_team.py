@@ -170,6 +170,28 @@ def test_row_filter_cannot_be_escaped(service: WarehouseService, sql: str) -> No
     assert set(cells(out)) <= {"enwiki"}
 
 
+@pytest.mark.parametrize("sql", [
+    'WITH "EDITS" AS (SELECT * FROM edits_per_minute) SELECT editor, comment, wiki FROM edits',
+    'WITH "edits" AS (SELECT * FROM edits_per_minute) SELECT editor, comment, wiki FROM edits',
+    'WITH "Edits" AS (SELECT * FROM edits_per_minute) SELECT editor, wiki FROM EDITS',
+    'WITH "EDITOR_SESSIONS" AS (SELECT * FROM edits_per_minute) SELECT * FROM editor_sessions',
+    'SELECT * FROM (WITH "EDITS" AS (SELECT * FROM edits_per_minute) '
+    'SELECT editor, wiki FROM edits) AS t',
+])
+def test_cte_names_differing_by_case_cannot_unmask_a_table(service: WarehouseService,
+                                                           sql: str) -> None:
+    # On a case-sensitive engine the quoted CTE does not shadow the unquoted reference, which
+    # then read the raw table: names, every wiki, ungranted datasets. DuckDB resolves it to
+    # the CTE and fails on the missing column. Either a refusal or no data is acceptable.
+    try:
+        out = run(service, sql, "enwiki_partner")
+    except (QueryRejected, BackendError):
+        return
+    assert not {str(v) for v in cells(out)} & (RAW_EDITORS | RAW_EDITOR_MD5)
+    if "wiki" in out.columns:
+        assert {row[out.columns.index("wiki")] for row in out.rows} <= {"enwiki"}
+
+
 @pytest.mark.parametrize("predicate", [
     "1 / (CASE WHEN wiki <> 'enwiki' THEN 0 ELSE 1 END) = 1",
     "CAST(CASE WHEN wiki <> 'enwiki' THEN title ELSE '1' END AS INTEGER) = 1",

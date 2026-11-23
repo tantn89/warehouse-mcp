@@ -4,6 +4,9 @@ from pathlib import Path
 
 import duckdb
 import pytest
+import sqlglot
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
+from sqlglot.optimizer.scope import traverse_scope
 
 from conftest import SALT, make_settings
 from warehouse_mcp.config import Settings
@@ -168,3 +171,59 @@ def test_undeclared_columns_do_not_exist(demo_db: Path) -> None:
     # Policy subqueries project declared columns only; the backend reports the unknown column.
     with pytest.raises(duckdb.BinderException):
         run("SELECT secret_column FROM edits", demo_db)
+
+# --- CTE names compared the way each engine resolves them ---------------------------------
+
+def _unrewritten_tables(physical_sql: str, dialect: str) -> list[str]:
+    """Unqualified tables the engine would not resolve to a CTE, after the guard ran.
+
+    Policy subqueries always name the physical table qualified (main.edits_raw), so anything
+    left unqualified and not a CTE, by the engine's own name rules, would read a raw table
+    from the session's default schema.
+    """
+    root = normalize_identifiers(sqlglot.parse_one(physical_sql, read=dialect), dialect=dialect)
+    return [table.name for scope in traverse_scope(root) for table in scope.tables
+            if not table.args.get("db") and table.name not in scope.cte_sources]
+
+
+CASE_SHADOWING = [
+    'WITH "EDITS" AS (SELECT 1 AS editor) SELECT editor FROM edits',
+    'WITH "edits" AS (SELECT 1 AS editor) SELECT editor FROM edits',
+    'WITH "Edits" AS (SELECT 1 AS editor) SELECT editor FROM EDITS',
+    'WITH "SALARIES" AS (SELECT 1 AS employee) SELECT * FROM salaries, edits',
+    'SELECT * FROM (WITH "EDITS" AS (SELECT 1 AS editor) SELECT editor FROM edits) AS t',
+    'WITH x AS (SELECT wiki FROM edits) SELECT * FROM "X", edits',
+]
+
+
+@pytest.mark.parametrize("dialect", ["duckdb", "postgres", "snowflake", "bigquery"])
+@pytest.mark.parametrize("sql", CASE_SHADOWING)
+def test_cte_names_differing_by_case_or_quoting_never_leave_a_raw_table(
+        settings: Settings, sql: str, dialect: str) -> None:
+    # A quoted CTE whose case differs from the reference shadows it on DuckDB, not on Postgres
+    # or Snowflake, where the reference then read the raw table unrewritten.
+    try:
+        query = guard(sql, settings, role="enwiki_only", dialect=dialect)
+    except QueryRejected:
+        return
+    assert _unrewritten_tables(query.physical_sql, dialect) == []
+
+
+@pytest.mark.parametrize(("sql", "dialect"), [
+    ('WITH "EDITS" AS (SELECT 1 AS editor) SELECT editor FROM edits', "postgres"),
+    ('WITH "edits" AS (SELECT 1 AS editor) SELECT editor FROM edits', "snowflake"),
+    ('WITH "Edits" AS (SELECT 1 AS editor) SELECT editor FROM EDITS', "snowflake"),
+    ('WITH x AS (SELECT wiki FROM edits) SELECT * FROM "X", edits', "postgres"),
+])
+def test_case_sensitive_engines_refuse_ctes_that_only_look_like_the_reference(
+        settings: Settings, sql: str, dialect: str) -> None:
+    with pytest.raises(QueryRejected, match="case"):
+        guard(sql, settings, role="enwiki_only", dialect=dialect)
+
+@pytest.mark.parametrize("dialect", ["duckdb", "postgres", "snowflake", "bigquery"])
+def test_plain_cte_shadowing_a_dataset_still_rewrites_the_inner_reference(
+        settings: Settings, dialect: str) -> None:
+    query = guard("WITH edits AS (SELECT wiki FROM edits) SELECT DISTINCT wiki FROM edits",
+                  settings, role="enwiki_only", dialect=dialect)
+    assert "enwiki" in query.physical_sql
+    assert _unrewritten_tables(query.physical_sql, dialect) == []
