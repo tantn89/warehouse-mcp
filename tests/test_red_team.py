@@ -190,6 +190,8 @@ SNOWFLAKE_ATTACKS = [
     "SELECT * FROM edits PIVOT (count(event_id) FOR wiki IN ('enwiki', 'dewiki'))",
     "SELECT * FROM (edits JOIN edits_per_minute ON true)",
     "SELECT a, b FROM edits AS e(a, b)",
+    "SELECT count(*) FROM edits, LATERAL SPLIT_TO_TABLE(REPEAT('a,', 10000000), ',') s",
+    "SELECT count(*) FROM edits, LATERAL STRTOK_SPLIT_TO_TABLE(title, ' ') s",
     "PUT file:///etc/passwd @~",
     "LIST @~",
     "SHOW GRANTS",

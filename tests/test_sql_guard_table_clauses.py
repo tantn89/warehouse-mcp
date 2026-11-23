@@ -53,3 +53,22 @@ def test_the_same_clauses_on_a_subquery_are_kept(settings: Settings, dialect: st
         sql = "SELECT wiki, count(*) FROM (SELECT wiki FROM edits) AS t GROUP BY wiki"
     query = guard_query(sql, settings, settings.role("enwiki_only"), dialect, SALT)
     assert "enwiki" in query.physical_sql
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT count(*) FROM edits, LATERAL SPLIT_TO_TABLE(REPEAT('a,', 10000000), ',') s",
+    "SELECT count(*) FROM edits, LATERAL STRTOK_SPLIT_TO_TABLE(wiki, ' ') s",
+    "SELECT count(*) FROM edits, TABLE(SPLIT_TO_TABLE('a,b', ','))",
+    "SELECT count(*) FROM edits, LATERAL FLATTEN(INPUT => PARSE_JSON('[1]')) f",
+])
+def test_row_generating_table_functions_are_refused_on_snowflake(settings: Settings,
+                                                                 sql: str) -> None:
+    with pytest.raises(QueryRejected):
+        guard_query(sql, settings, settings.role("analyst"), "snowflake", SALT)
+
+
+@pytest.mark.parametrize("dialect", ["duckdb", "postgres", "snowflake"])
+def test_lateral_subqueries_still_work(settings: Settings, dialect: str) -> None:
+    query = guard_query("SELECT e.wiki, l.n FROM edits AS e, LATERAL (SELECT 1 AS n) AS l",
+                        settings, settings.role("enwiki_only"), dialect, SALT)
+    assert "enwiki" in query.physical_sql
