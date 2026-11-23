@@ -144,13 +144,15 @@ def test_writes_and_smuggled_statements_are_rejected(service: WarehouseService,
 def test_table_statement_is_refused_or_read_through_the_policy(
         service: WarehouseService) -> None:
     # `TABLE edits` is shorthand for SELECT * FROM edits. Older sqlglot releases could not parse
-    # it, newer ones read it as that SELECT; either way no raw editor name may come back.
+    # it, newer ones read it as that SELECT; either way no raw editor name may come back, and
+    # the partner's row filter still holds.
     try:
-        out = run(service, "TABLE edits")
+        out = run(service, "TABLE edits", "enwiki_partner")
     except QueryRejected:
         return
-    editor = out.columns.index("editor")
+    editor, wiki = out.columns.index("editor"), out.columns.index("wiki")
     assert out.rows and not {str(row[editor]) for row in out.rows} & (RAW_EDITORS | RAW_EDITOR_MD5)
+    assert {row[wiki] for row in out.rows} == {"enwiki"}
 
 
 # --- Snowflake: stages, table functions, account metadata, session and time travel -------
