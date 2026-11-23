@@ -25,6 +25,7 @@ from load_snapshot import parquet_columns, parquet_files
 
 OWNER_KEY_ENV = "WAREHOUSE_MCP_SNOWFLAKE_OWNER_KEY_FILE"
 READER_ROLE = "MCP_READER"
+READER_USER = "MCP_READER_SVC"
 
 # DuckDB column type (as read from the Parquet files) -> Snowflake column type.
 SNOWFLAKE_TYPES = {
@@ -47,9 +48,9 @@ def snowflake_type(table: str, column: str, duckdb_type: str) -> str:
 
 def load_snowflake(account: str, user: str, role: str, warehouse: str, database: str,
                    schema: str) -> None:
-    if role.upper() == READER_ROLE:
-        raise SystemExit(f"load as the owner role, never as {READER_ROLE}: the reader must "
-                         "not be able to write")
+    if role.upper() == READER_ROLE or user.upper() == READER_USER:
+        raise SystemExit(f"load as the owner, never as {READER_USER} or {READER_ROLE}: the "
+                         "reader must not be able to write")
     key_file = os.environ.get(OWNER_KEY_ENV)
     if not key_file or not os.path.isfile(key_file):
         raise SystemExit(f"set {OWNER_KEY_ENV} to the owner's private key file")
@@ -64,6 +65,10 @@ def load_snowflake(account: str, user: str, role: str, warehouse: str, database:
         raise SystemExit(f"load_snapshot: Snowflake connection failed: {exc.raw_msg}") from exc
     source = duckdb.connect()
     try:
+        # By name the checks above can be dodged (a quoted or renamed role); the session says
+        # which role is really in use. Loading under the wrong role would also grant it
+        # ownership of the tables.
+        check_role(conn, role)
         with parquet_files() as paths:
             for table, path in paths.items():
                 started = time.perf_counter()
@@ -75,6 +80,18 @@ def load_snowflake(account: str, user: str, role: str, warehouse: str, database:
     finally:
         source.close()
         conn.close()
+
+
+def check_role(conn: snowflake.connector.Connection, role: str) -> None:
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT CURRENT_ROLE()")
+        row = cur.fetchone()
+    finally:
+        cur.close()
+    current = str(row[0]) if isinstance(row, tuple) else ""
+    if current.upper() != role.upper() or current.upper() == READER_ROLE:
+        raise SystemExit(f"the session runs as role {current or '?'}, not {role}; refusing to load")
 
 
 def load_table(conn: snowflake.connector.Connection, source: duckdb.DuckDBPyConnection,
