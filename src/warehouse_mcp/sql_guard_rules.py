@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from sqlglot import exp
 
+
+class QueryRejected(Exception):
+    """The query was refused before reaching the warehouse. The message is safe to show."""
+
+
 # Statement and clause types that write, change session state or touch the filesystem.
 FORBIDDEN_NODES: tuple[type[exp.Expr], ...] = tuple(
     getattr(exp, name) for name in (
