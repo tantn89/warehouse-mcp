@@ -49,11 +49,12 @@ _OBJECT_MISSING_ERRNO = 2003  # "Object ... does not exist or not authorized."
 _SESSION_GONE_ERRNOS = frozenset({390112, 390114, 250002})
 # A physical table from the config: database.schema.table, unquoted identifiers only.
 _TABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){2}")
-# Snowflake messages can carry the account host and query or request ids. None of them help an
-# agent fix its query, and the host and ids identify the deployment.
+# Snowflake messages can carry the account host, locator and query or request ids. None of
+# them help an agent fix its query, and they identify the deployment.
 _HOST = re.compile(r"\b[\w.-]+\.snowflakecomputing\.(com|cn)\S*", re.IGNORECASE)
 _UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
                    re.IGNORECASE)
+_LOCATOR = re.compile(r"\b[A-Za-z]{2,3}[0-9]{5,6}\b")
 
 
 class SnowflakeBackend:
@@ -69,6 +70,11 @@ class SnowflakeBackend:
         self._settings = connection
         self._key_file = key_file
         self._max_timeout_s = connection.statement_timeout_s
+        # The account name with and without its organization, and the user: whole tokens only,
+        # so a short name does not blank out ordinary words.
+        names = {connection.account, *connection.account.split("-"), connection.user}
+        self._identifying = [re.compile(rf"(?<![\w$.-]){re.escape(n)}(?![\w$-])", re.IGNORECASE)
+                             for n in sorted(names, key=len, reverse=True) if len(n) >= 3]
         self._lock = threading.Lock()
         self._conn = self._connect()
 
@@ -174,14 +180,13 @@ class SnowflakeBackend:
         self._conn.close()
 
     def _message(self, exc: snowflake_errors.Error) -> str:
-        """The engine's own words, minus the account host, ids, the account and the user.
+        """The engine's own words, minus the account host, locator, ids, account and user.
 
         `raw_msg` already omits the error code, SQLSTATE and query id that `str(exc)` appends.
         The service then drops quoted values and redacts what is left.
         """
         text = " ".join(str(exc.raw_msg or "").split()) or "Query failed."
-        text = _UUID.sub("<id>", _HOST.sub("<snowflake host>", text))
-        for secret, label in ((self._settings.account, "<account>"),
-                              (self._settings.user, "<user>")):
-            text = re.sub(re.escape(secret), label, text, flags=re.IGNORECASE)
+        text = _LOCATOR.sub("<account>", _UUID.sub("<id>", _HOST.sub("<snowflake host>", text)))
+        for pattern in self._identifying:
+            text = pattern.sub("<redacted>", text)
         return text
