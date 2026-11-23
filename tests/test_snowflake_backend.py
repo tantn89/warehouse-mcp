@@ -185,6 +185,20 @@ def test_errors_lose_account_user_host_and_ids(fake: FakeConnection,
     assert "SECRETS" not in scrub_error(message)  # the service then drops quoted names
 
 
+def test_redaction_takes_whole_names_and_account_locators_only(fake: FakeConnection) -> None:
+    fake.error = snowflake_errors.ProgrammingError(
+        msg="Warehouse ACMEPROD is not usable by mcp_reader_svc2 in account XY12345; demo "
+            "user MCP_READER_SVC.", errno=606)
+    with pytest.raises(BackendError) as excinfo:
+        SnowflakeBackend(CONNECTION).execute("SELECT 1", 1, 5)
+    message = str(excinfo.value)
+    # Longer words that merely contain a name stay; the bare account name, the user and the
+    # locator-style account id go.
+    assert "ACMEPROD" in message and "mcp_reader_svc2" in message
+    assert "XY12345" not in message and "MCP_READER_SVC." not in message
+    assert message.count("<redacted>") == 2 and "<account>" in message
+
+
 def test_connect_failures_are_scrubbed(monkeypatch: pytest.MonkeyPatch, key_file: Path) -> None:
     def refuse(**kwargs: Any) -> None:
         raise snowflake_errors.OperationalError(
