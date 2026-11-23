@@ -1,4 +1,4 @@
-"""Load the bundled Wikipedia Parquet snapshot into Postgres or BigQuery.
+"""Load the bundled Wikipedia Parquet snapshot into Postgres, BigQuery or Snowflake.
 
 Postgres (default): connects as the schema owner, then for each table drops it, recreates it
 with mapped types and fills it with COPY, all in one transaction, so a rerun is idempotent and
@@ -12,6 +12,11 @@ BigQuery: one load job per table straight from the Parquet files, replacing the 
 Credentials come from Application Default Credentials.
 
     python scripts/load_snapshot.py --target bigquery --project P --dataset D --location US
+
+Snowflake: connects as the owner's service user with key-pair auth, the key file named by
+WAREHOUSE_MCP_SNOWFLAKE_OWNER_KEY_FILE; see load_snapshot_snowflake.py.
+
+    python scripts/load_snapshot.py --target snowflake --account ORG-ACCOUNT --schema WIKIPEDIA
 
 Timestamps are naive UTC in the snapshot and stay naive in Postgres (timestamp without time
 zone), so results match DuckDB value for value.
@@ -130,17 +135,34 @@ def load_bigquery(project: str, dataset: str, location: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        description="Load the bundled Wikipedia Parquet snapshot into Postgres or BigQuery.")
-    parser.add_argument("--target", choices=["postgres", "bigquery"], default="postgres")
+    parser = argparse.ArgumentParser(description="Load the bundled Wikipedia Parquet snapshot "
+                                                 "into Postgres, BigQuery or Snowflake.")
+    parser.add_argument("--target", choices=["postgres", "bigquery", "snowflake"],
+                        default="postgres")
     parser.add_argument("--dsn", default=os.environ.get("WAREHOUSE_MCP_LOADER_DSN", DEFAULT_DSN),
                         help="Postgres DSN of the schema owner (env WAREHOUSE_MCP_LOADER_DSN).")
-    parser.add_argument("--schema", default=DEFAULT_SCHEMA, help="Postgres schema to load.")
+    parser.add_argument("--schema", default=DEFAULT_SCHEMA,
+                        help="Postgres or Snowflake schema to load.")
     parser.add_argument("--project", help="BigQuery project.")
     parser.add_argument("--dataset", help="BigQuery dataset, created if missing.")
     parser.add_argument("--location", default="US", help="BigQuery dataset location.")
+    parser.add_argument("--account", default=os.environ.get("WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT"),
+                        help="Snowflake account (env WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT).")
+    parser.add_argument("--user", default="WAREHOUSE_OWNER_SVC", help="Snowflake owner user.")
+    parser.add_argument("--role", default="WAREHOUSE_OWNER", help="Snowflake owner role.")
+    parser.add_argument("--warehouse", default="MCP_WH", help="Snowflake warehouse.")
+    parser.add_argument("--database", default="WAREHOUSE_MCP", help="Snowflake database.")
     args = parser.parse_args(argv)
 
+    if args.target == "snowflake":
+        if not args.account:
+            parser.error("--target snowflake needs --account or WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT")
+        # A sibling module: `python scripts/load_snapshot.py` puts scripts/ on sys.path.
+        from load_snapshot_snowflake import load_snowflake
+
+        load_snowflake(args.account, args.user, args.role, args.warehouse, args.database,
+                       args.schema)
+        return
     if args.target == "bigquery":
         if not (args.project and args.dataset):
             parser.error("--target bigquery needs --project and --dataset")
