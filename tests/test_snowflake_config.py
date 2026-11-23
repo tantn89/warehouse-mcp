@@ -12,8 +12,7 @@ from warehouse_mcp.config import SnowflakeConnection, load_settings
 
 SNOWFLAKE_CONFIG = Path(__file__).resolve().parents[1] / "examples" / "snowflake.yaml"
 BASE = {"kind": "snowflake", "account": "acme-demo", "user": "MCP_READER_SVC",
-        "role": "MCP_READER", "warehouse": "MCP_WH", "database": "WAREHOUSE_MCP",
-        "schema": "WIKIPEDIA"}
+        "role": "MCP_READER", "warehouse": "MCP_WH"}
 
 
 def test_example_config_loads_with_the_key_path_left_to_the_environment() -> None:
@@ -22,8 +21,8 @@ def test_example_config_loads_with_the_key_path_left_to_the_environment() -> Non
         settings = load_settings(SNOWFLAKE_CONFIG)
     connection = settings.connection
     assert isinstance(connection, SnowflakeConnection)
-    assert (connection.account, connection.role, connection.schema_) == (
-        "acme-demo", "MCP_READER", "WIKIPEDIA")
+    assert (connection.account, connection.role, connection.warehouse) == (
+        "acme-demo", "MCP_READER", "MCP_WH")
     assert connection.private_key_file_env == "WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE"
     edits = settings.dataset("edits")
     assert edits is not None and edits.table == "WAREHOUSE_MCP.WIKIPEDIA.edits"
@@ -47,7 +46,9 @@ def test_connection_defaults() -> None:
     {"private_key": "inline keys are not a field"},  # secrets never live in the config
     {"password": "x"},
     {"role": "MCP_READER; DROP"},
-    {"schema": '"Quoted"'},
+    {"warehouse": '"Quoted"'},
+    {"database": "WAREHOUSE_MCP"},  # no default database: tables are fully qualified
+    {"schema": "WIKIPEDIA"},
     {"account": "acme demo"},
     {"statement_timeout_s": 0},
     {"statement_timeout_s": 7200},

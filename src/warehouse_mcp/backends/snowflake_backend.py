@@ -6,6 +6,10 @@ fail on grants, whatever the SQL says. Cost is bounded by the warehouse itself: 
 AUTO_SUSPEND, a resource monitor and STATEMENT_TIMEOUT_IN_SECONDS, which this backend also
 sets per session and per statement.
 
+The session has no current database or schema. Dataset tables must be fully qualified in the
+config (database.schema.table), so a reference the guard failed to rewrite cannot resolve to a
+raw table: it fails for lack of a current schema.
+
 The private key is read from a file whose path comes from an environment variable; the config
 names the variable, never the key. Snowflake bills by warehouse time, not bytes scanned, so
 `bytes_processed` stays None: the connector reports no scan statistics for a SELECT, and
@@ -33,8 +37,8 @@ QUERY_TAG = "warehouse-mcp"
 _TIMEOUT_ERRNO = 630
 _TIMEOUT_SQLSTATE = "57014"
 _OBJECT_MISSING_ERRNO = 2003  # "Object ... does not exist or not authorized."
-# A physical table from the config: up to database.schema.table, unquoted identifiers only.
-_TABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){0,2}")
+# A physical table from the config: database.schema.table, unquoted identifiers only.
+_TABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){2}")
 # Snowflake messages can carry the account host and query or request ids. None of them help an
 # agent fix its query, and the host and ids identify the deployment.
 _HOST = re.compile(r"\b[\w.-]+\.snowflakecomputing\.(com|cn)\S*", re.IGNORECASE)
@@ -57,8 +61,7 @@ class SnowflakeBackend:
         try:
             self._conn = snowflake.connector.connect(
                 account=connection.account, user=connection.user, role=connection.role,
-                warehouse=connection.warehouse, database=connection.database,
-                schema=connection.schema_,
+                warehouse=connection.warehouse,
                 authenticator="SNOWFLAKE_JWT", private_key_file=key_file,
                 # No heartbeat thread: an idle server lets its session expire instead of
                 # keeping one open on the account.
@@ -104,8 +107,8 @@ class SnowflakeBackend:
 
     def table_columns(self, table: str) -> dict[str, str]:
         if not _TABLE.fullmatch(table):
-            raise BackendError(f"Table {table!r} must be [database.][schema.]table with "
-                               "unquoted identifiers.")
+            raise BackendError(f"Table {table!r} must be database.schema.table with unquoted "
+                               "identifiers: the session has no current database or schema.")
         cursor = self._conn.cursor()
         try:
             cursor.execute(f"DESCRIBE TABLE {table}")

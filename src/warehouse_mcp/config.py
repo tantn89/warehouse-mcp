@@ -54,9 +54,8 @@ class SnowflakeConnection(_Strict):
     user: str = Field(min_length=1, description="A TYPE=SERVICE user with key-pair auth.")
     role: SnowflakeName = Field(description="A role holding SELECT on the exposed tables only.")
     warehouse: SnowflakeName
-    database: SnowflakeName
-    # `schema` is the Snowflake word; the attribute avoids shadowing BaseModel.schema.
-    schema_: SnowflakeName = Field(alias="schema")
+    # No database or schema: the session gets no current schema, so dataset tables are named
+    # database.schema.table and a reference that escaped the policy rewrite resolves nowhere.
     private_key_file_env: str = Field(
         default="WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE",
         description="Environment variable holding the path of the unencrypted PKCS#8 key.")
