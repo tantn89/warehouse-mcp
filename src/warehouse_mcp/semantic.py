@@ -115,5 +115,8 @@ def _timestamp(value: datetime, dialect: str) -> exp.Expr:
         value = value.astimezone(UTC).replace(tzinfo=None)
     # BigQuery's TIMESTAMP is an absolute instant; sqlglot renders a plain "timestamp" cast
     # as DATETIME there, which BigQuery refuses to compare with a TIMESTAMP column.
-    kind = "timestamptz" if dialect == "bigquery" else "timestamp"
+    # Snowflake's plain TIMESTAMP is whatever TIMESTAMP_TYPE_MAPPING says (an account setting),
+    # so the literal names TIMESTAMP_NTZ, the type the snapshot's naive UTC times are loaded as:
+    # the comparison then involves no time zone conversion.
+    kind = {"bigquery": "timestamptz", "snowflake": "timestampntz"}.get(dialect, "timestamp")
     return exp.cast(exp.Literal.string(value.isoformat(sep=" ")), exp.DataType.build(kind))

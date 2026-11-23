@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Tan Tran" }]
 keywords = ["mcp", "model-context-protocol", "ai-agents", "data-warehouse", "duckdb",
-            "postgres", "bigquery", "text-to-sql", "data-governance", "pii"]
+            "postgres", "bigquery", "snowflake", "text-to-sql", "data-governance", "pii"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -34,10 +34,12 @@ dependencies = [
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2"]
 bigquery = ["google-cloud-bigquery>=3.25"]
+snowflake = ["snowflake-connector-python>=5.2,<6"]
 eval = ["anthropic>=0.70", "regressgate>=0.1"]
 dev = [
   "psycopg[binary]>=3.2",
   "google-cloud-bigquery>=3.25",
+  "snowflake-connector-python>=5.2,<6",
   "anyio>=4.4",
   "mypy>=1.11",
   "pytest>=8.3",
