@@ -26,30 +26,12 @@ from sqlglot.errors import OptimizeError, ParseError
 from sqlglot.optimizer.scope import traverse_scope
 
 from warehouse_mcp.config import Dataset, Role, Settings
-
-# Statement and clause types that write, change session state or touch the filesystem.
-_FORBIDDEN_NODES: tuple[type[exp.Expr], ...] = tuple(
-    getattr(exp, name) for name in (
-        "Insert", "Update", "Delete", "Merge", "Create", "Drop", "Alter", "TruncateTable",
-        "Command", "Copy", "Pragma", "Set", "Use", "Attach", "Detach", "Export", "Into",
-        "Lock", "Grant", "Revoke", "Transaction", "Commit", "Rollback", "Analyze", "Describe",
-    ) if hasattr(exp, name)
+from warehouse_mcp.sql_guard_rules import (
+    DEFAULT_ALLOWED_FUNCTIONS,
+    DENIED_FUNCTIONS,
+    FORBIDDEN_NODES,
+    VERSION_CLAUSES,
 )
-
-# Functions the parser knows that read files, generate unbounded rows or reveal the session.
-_DENIED_FUNCTIONS = {
-    "ReadCSV", "ReadParquet", "ToFile", "GenerateSeries", "ExplodingGenerateSeries", "Explode",
-    "_ExplodeOuter", "Unnest", "CurrentUser", "SessionUser", "CurrentSchema", "CurrentCatalog",
-    "CurrentDatabase", "CurrentVersion",
-}
-
-# Functions the parser does not model (so it sees an "Anonymous" call) are denied unless
-# listed here or in the config: dialect-specific functions are where file reads
-# (pg_read_file, read_text), sleeps and settings changes hide.
-DEFAULT_ALLOWED_FUNCTIONS = frozenset({
-    "dayname", "monthname", "make_date", "make_timestamp", "epoch_ms", "date_part",
-    "isodow", "isoyear", "percentile_cont", "percentile_disc", "bool_or", "bool_and",
-})
 
 
 class QueryRejected(Exception):
@@ -97,7 +79,7 @@ def _parse_single_query(sql: str, dialect: str) -> exp.Query:
 
 def _reject_writes_and_side_effects(root: exp.Expr) -> None:
     for node in root.walk():
-        if isinstance(node, _FORBIDDEN_NODES):
+        if isinstance(node, FORBIDDEN_NODES):
             raise QueryRejected(f"{type(node).__name__} is not allowed: this server is read-only.")
         if isinstance(node, exp.Select) and (node.args.get("into") or node.args.get("locks")):
             raise QueryRejected("SELECT INTO and row locks are not allowed: this server is "
@@ -111,7 +93,7 @@ def _check_functions(root: exp.Expr, settings: Settings) -> None:
             if func.name.lower() not in allowed:
                 raise QueryRejected(f"Function {func.name}() is not allowed. Use standard SQL "
                                     "functions (aggregates, date/time, string, math, CASE).")
-        elif type(func).__name__ in _DENIED_FUNCTIONS:
+        elif type(func).__name__ in DENIED_FUNCTIONS:
             raise QueryRejected(f"{func.sql_name()} is not allowed: queries may only read the "
                                 "declared datasets.")
 
@@ -179,11 +161,17 @@ def _dataset_references(root: exp.Expr, settings: Settings, role: Role,
                         dialect: str) -> list[tuple[exp.Table, Dataset]]:
     available = ", ".join(d.name for d in settings.datasets if role.can_read(d.name))
     cte_refs = _cte_references(root, settings, dialect)
+    if root.find(exp.TableFromRows):  # Snowflake TABLE(...): RESULT_SCAN, GENERATOR, FLATTEN
+        raise QueryRejected("Table functions are not allowed in FROM; query the datasets: "
+                            f"{available}.")
     references = []
     for table in root.find_all(exp.Table):
-        if not isinstance(table.this, exp.Identifier):
+        if not isinstance(table.this, exp.Identifier):  # stages (@stage), IDENTIFIER(), calls
             raise QueryRejected("Table functions are not allowed in FROM; query the datasets: "
                                 f"{available}.")
+        if any(table.args.get(clause) for clause in VERSION_CLAUSES):
+            raise QueryRejected("Time travel (AT, BEFORE, CHANGES, FOR SYSTEM_TIME) is not "
+                                "allowed: queries read the current data of each dataset.")
         if table.args.get("db") or table.args.get("catalog"):
             raise QueryRejected(f"Use dataset names without a schema prefix: {available}.")
         if id(table) in cte_refs:
