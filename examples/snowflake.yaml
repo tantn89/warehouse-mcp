@@ -10,9 +10,12 @@
 # Least privilege, set up by docker/snowflake-setup.sql:
 # - MCP_READER_SVC is a TYPE=SERVICE user: key-pair auth only, no password, no browser login.
 # - Its role MCP_READER holds USAGE on warehouse MCP_WH, database WAREHOUSE_MCP and schema
-#   WIKIPEDIA, and SELECT on the tables in that schema. Nothing else: no CREATE on any schema
-#   (so no tables, temporary tables or stages of its own), no other database, no
-#   SNOWFLAKE.ACCOUNT_USAGE. Writes fail on grants even with every other layer bypassed.
+#   WIKIPEDIA, and SELECT on the tables in that schema, plus what the account grants PUBLIC
+#   (often SNOWFLAKE_SAMPLE_DATA). No CREATE privilege: writes to the tables and new permanent
+#   tables or stages fail on grants even with the SQL guard bypassed.
+# - Temporary tables and the user stage (@~) need no grant. They are private to the session,
+#   refused by the SQL guard, and unloads to @~ are switched off on the user
+#   (PREVENT_UNLOAD_TO_INTERNAL_STAGES).
 # - MCP_WH is an XS warehouse that suspends after 60 s idle, under a resource monitor that
 #   suspends it at a small credit quota, with a 60 s statement timeout. The backend sets the
 #   same timeout on its session and the per-query limit on each statement.

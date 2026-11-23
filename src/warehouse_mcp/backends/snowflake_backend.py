@@ -1,10 +1,12 @@
 """Snowflake: a SELECT-only service user, key-pair auth, and a server-side statement timeout.
 
 Connect as a TYPE=SERVICE user whose role holds USAGE on one warehouse, database and schema
-and SELECT on the exposed tables, nothing else (see docker/snowflake-setup.sql). Writes then
-fail on grants, whatever the SQL says. Cost is bounded by the warehouse itself: an XS size,
-AUTO_SUSPEND, a resource monitor and STATEMENT_TIMEOUT_IN_SECONDS, which this backend also
-sets per session and per statement.
+and SELECT on the exposed tables (see docker/snowflake-setup.sql). Persistent writes to the
+warehouse's tables then fail on grants, whatever the SQL says. Session-private objects that no
+grant controls (temporary tables, the user stage) are refused by the SQL guard, and unloads to
+internal stages are switched off on the user. Cost is bounded by the warehouse itself: an XS
+size, AUTO_SUSPEND, a resource monitor and STATEMENT_TIMEOUT_IN_SECONDS, which this backend
+also sets per session and per statement.
 
 The session has no current database or schema. Dataset tables must be fully qualified in the
 config (database.schema.table), so a reference the guard failed to rewrite cannot resolve to a
