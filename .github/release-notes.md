@@ -6,7 +6,7 @@ Snowflake joins DuckDB, Postgres and BigQuery. Install with `pip install "wareho
   - fully qualified tables only, with no default database or schema in the session;
   - statement, session, user and warehouse timeouts;
   - an expired session is replaced once on the next call.
-- **Least-privilege setup:** [`docker/snowflake-setup.sql`](docker/snowflake-setup.sql).
+- **Least-privilege setup:** [`docker/snowflake-setup.sql`](https://github.com/tantn89/warehouse-mcp/blob/main/docker/snowflake-setup.sql).
   - reader and owner roles;
   - an XS warehouse that suspends after 60 s;
   - a resource monitor;
@@ -18,7 +18,7 @@ Snowflake joins DuckDB, Postgres and BigQuery. Install with `pip install "wareho
     functions, and time travel;
   - refuses table clauses the policy rewrite would otherwise drop silently: `SAMPLE` and
     `TABLESAMPLE`, `PIVOT` and `UNPIVOT`, joins nested in parentheses, alias column lists.
-- **Live evidence** ([docs/snowflake-run.md](docs/snowflake-run.md)), from a real Snowflake
+- **Live evidence** ([docs/snowflake-run.md](https://github.com/tantn89/warehouse-mcp/blob/main/docs/snowflake-run.md)), from a real Snowflake
   account:
   - the 15 parity queries match DuckDB, compared at Snowflake's 6-decimal scale;
   - the red-team suite's 151 cases leak nothing;
