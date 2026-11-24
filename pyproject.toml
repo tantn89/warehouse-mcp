@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "warehouse-mcp"
 dynamic = ["version"]
-description = "Governed, read-only MCP access to DuckDB, Postgres and BigQuery for AI agents: semantic layer, SQL guard, row policies, PII pseudonymization, audit log."
+description = "Governed, read-only MCP access to DuckDB, Postgres, BigQuery and Snowflake for AI agents: semantic layer, SQL guard, row policies, PII pseudonymization, audit log."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

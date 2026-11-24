@@ -9,6 +9,7 @@ Commands to install, run and test. For rollout strategy at a customer see
 pip install warehouse-mcp                 # DuckDB only
 pip install "warehouse-mcp[postgres]"     # + psycopg
 pip install "warehouse-mcp[bigquery]"     # + google-cloud-bigquery
+pip install "warehouse-mcp[snowflake]"    # + snowflake-connector-python>=5.2,<6
 pip install -e ".[dev,eval]"              # from a checkout: tests, lint, agent eval
 ```
 
@@ -96,6 +97,26 @@ Credentials are Application Default Credentials; nothing is stored in the config
 is dry-run first and refused above `connection.maximum_bytes_billed` (default 1,000,000,000; the
 minimum accepted is 10,485,760). This path has not been run against a live project yet.
 Measured: 15/15 parity cases identical to DuckDB, about $0.00006 per demo query, and a 4.65 GB scan refused by the cap before billing ([bigquery-run.md](bigquery-run.md)).
+
+## Snowflake
+
+Run [`docker/snowflake-setup.sql`](../docker/snowflake-setup.sql) once as an admin. It creates the
+reader, a `TYPE=SERVICE` user with key-pair auth and no password, plus the warehouse, resource
+monitor and teardown. Then load the snapshot as the owner and serve it as the reader:
+
+```bash
+python scripts/load_snapshot.py --target snowflake --account <orgname-accountname>
+export WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT=<orgname-accountname>
+export WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE=<path to the reader's PKCS#8 private key>
+export WAREHOUSE_MCP_SCHEMA=WAREHOUSE_MCP.WIKIPEDIA
+warehouse-mcp --config examples/snowflake.yaml
+```
+
+The private key stays in a file named by `connection.private_key_file_env`; the config holds no
+secret. The session has no current database or schema, so tables must be `database.schema.table`.
+Snowflake reports no bytes scanned, so there is no byte cap: size the warehouse and its resource
+monitor instead. Every role inherits `PUBLIC`; see the caveat in [snowflake-run.md](snowflake-run.md).
+Measured: 15/15 parity cases identical to DuckDB at Snowflake's 6-decimal scale, red team 151/151.
 
 ## Audit log and PII salt
 

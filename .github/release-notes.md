@@ -1,19 +1,33 @@
-Security fix release. Upgrade from 0.1.0: `pip install -U warehouse-mcp` or `uvx warehouse-mcp@0.1.1`.
+Snowflake joins DuckDB, Postgres and BigQuery. Install with `pip install "warehouse-mcp[snowflake]"`.
 
-**Fixed: a CTE named like a dataset but in a different case could skip the policy rewrite.**
-On engines that treat quoted identifiers as case-sensitive (Postgres, and Snowflake), a query such
-as `WITH "EDITS" AS (...) SELECT editor FROM edits` was treated as reading the CTE. The engine
-resolves the unquoted `edits` to the real table, so the outer reference was left unrewritten. Where
-that table was reachable without a schema prefix (for example tables in Postgres `public`, or a
-search path that includes the dataset schema), an agent could read raw columns, outside the
-role's row filter and its masked personal data.
+- **Snowflake backend:**
+  - key-pair auth for a `TYPE=SERVICE` reader user, with the private key read from a file named
+    by an env var;
+  - fully qualified tables only, with no default database or schema in the session;
+  - statement, session, user and warehouse timeouts;
+  - an expired session is replaced once on the next call.
+- **Least-privilege setup:** [`docker/snowflake-setup.sql`](docker/snowflake-setup.sql).
+  - reader and owner roles;
+  - an XS warehouse that suspends after 60 s;
+  - a resource monitor;
+  - unloads to internal stages switched off for the reader.
 
-- CTE names and table references are now compared with each engine's own identifier rules.
-- A CTE whose name differs from a dataset only by case or quoting is refused.
-- DuckDB, and the bundled `--demo`, were not affected: DuckDB identifiers are case-insensitive.
-  The Postgres setup in `docker/postgres-init.sql` was not exposed either: its tables live in a
-  schema outside the default search path.
-- New guard and red-team tests cover the case on DuckDB, Postgres, BigQuery and Snowflake
-  dialects.
+  A snapshot loader: `scripts/load_snapshot.py --target snowflake`.
+- **Guard:**
+  - refuses Snowflake table functions and row generators, session and account metadata
+    functions, and time travel;
+  - refuses table clauses the policy rewrite would otherwise drop silently: `SAMPLE` and
+    `TABLESAMPLE`, `PIVOT` and `UNPIVOT`, joins nested in parentheses, alias column lists.
+- **Live evidence** ([docs/snowflake-run.md](docs/snowflake-run.md)), from a real Snowflake
+  account:
+  - the 15 parity queries match DuckDB, compared at Snowflake's 6-decimal scale;
+  - the red-team suite's 151 cases leak nothing;
+  - writes fail on grants alone;
+  - unloads to `@~` are refused;
+  - the statement timeout cancels on the server;
+  - a server idle for 4 h 20 min keeps working;
+  - the run cost 0.12 credits.
 
-Also: a red-team test now accepts newer sqlglot parsing `TABLE edits` as a policy-guarded read.
+  The live run found and fixed one bug: after a long idle period the connector raises
+  `ReauthenticationRequest` with no error code, which the backend now treats as an expired
+  session.
