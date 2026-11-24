@@ -49,6 +49,17 @@ _OBJECT_MISSING_ERRNO = 2003  # "Object ... does not exist or not authorized."
 # The session is gone, so the statement never ran: 390112 session expired, 390114
 # authentication token expired, 250002 the connector's "Connection is closed".
 _SESSION_GONE_ERRNOS = frozenset({390112, 390114, 250002})
+# After about 4 h idle the connector itself gives up on the session ("Master token can never be
+# renewed - full re-authentication required") and raises this class with no errno. Measured on
+# a live account with connector 5.2; older connectors do not define it.
+_REAUTHENTICATE = getattr(snowflake_errors, "ReauthenticationRequest", None)
+
+
+def _session_gone(exc: snowflake_errors.Error) -> bool:
+    """True when the session no longer exists, so the statement never ran."""
+    if _REAUTHENTICATE is not None and isinstance(exc, _REAUTHENTICATE):
+        return True
+    return exc.errno in _SESSION_GONE_ERRNOS
 # A physical table from the config: database.schema.table, unquoted identifiers only.
 _TABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){2}")
 # Snowflake messages can carry the account host, locator and query or request ids. None of
@@ -119,7 +130,7 @@ class SnowflakeBackend:
         try:
             return self._on_cursor(conn, work)
         except snowflake_errors.Error as exc:
-            if exc.errno not in _SESSION_GONE_ERRNOS:
+            if not _session_gone(exc):
                 raise
         with self._lock:
             if self._conn is conn:

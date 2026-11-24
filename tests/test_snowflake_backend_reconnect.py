@@ -56,6 +56,19 @@ def test_an_expired_or_closed_session_is_replaced_once(
     assert [sql for sql, _ in fresh.executed] == ["SELECT 1", "SELECT 2"]
 
 
+@pytest.mark.skipif(not hasattr(snowflake_errors, "ReauthenticationRequest"),
+                    reason="this connector has no ReauthenticationRequest")
+def test_a_session_the_connector_cannot_renew_is_replaced(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    # What a live account raised after 4 h 20 min idle: no errno, only the class.
+    stale, fresh = FakeConnection(), _fresh()
+    stale.error = snowflake_errors.ReauthenticationRequest(
+        msg="Master token can never be renewed - full re-authentication required")
+    pending = _sessions(monkeypatch, stale, fresh)
+    assert SnowflakeBackend(CONNECTION).execute("SELECT 1", 5, 5).rows == [(1,)]
+    assert stale.closed and pending == []
+
+
 def test_table_columns_reconnect_too(monkeypatch: pytest.MonkeyPatch) -> None:
     stale, fresh = FakeConnection(), FakeConnection()
     stale.error = snowflake_errors.ProgrammingError(msg="Session expired.", errno=390112)
