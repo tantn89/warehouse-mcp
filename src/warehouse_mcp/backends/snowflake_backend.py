@@ -91,6 +91,8 @@ class SnowflakeBackend:
                 # server runs, idle or not. An expired session is replaced on the next call
                 # instead (see _call), which costs one login after a long idle period.
                 client_session_keep_alive=False,
+                # Queries here are synchronous, so closing always logs the session out.
+                enable_server_session_keep_alive_auto_detection=False,
                 login_timeout=30,
                 # Client-side backstop if the server-side cancel never arrives.
                 query_timeout=settings.statement_timeout_s + 15,

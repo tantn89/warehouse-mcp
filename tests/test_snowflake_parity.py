@@ -17,6 +17,7 @@ import json
 import os
 import time
 from collections.abc import Iterator
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,7 @@ import pytest
 from test_postgres_parity import CASES, _environment, _service, duckdb_demo_service, normalized
 from warehouse_mcp.backends import BackendError
 from warehouse_mcp.config import Limits, load_settings
-from warehouse_mcp.service import WarehouseService
+from warehouse_mcp.service import QueryOutput, WarehouseService
 
 SNOWFLAKE_ENABLED = bool(os.environ.get("WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT")
                          and os.environ.get("WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE"))
@@ -59,7 +60,21 @@ def test_duckdb_and_snowflake_agree(engines: tuple[WarehouseService, WarehouseSe
     duck, sf = (CASES[case](service) for service in engines)
     assert duck.row_count > 0
     print(json.dumps({"case": case, "elapsed_ms": sf.elapsed_ms}))
-    assert normalized(duck) == normalized(sf)
+    assert at_snowflake_scale(duck) == at_snowflake_scale(sf)
+
+
+def at_snowflake_scale(output: QueryOutput) -> tuple[list[str], list[str], bool]:
+    """Snowflake computes AVG and division over integers as fixed-point NUMBER with 6 decimal
+    places, where DuckDB returns DOUBLE. Both sides are rounded half away from zero, as
+    Snowflake rounds, to 6 decimals; everything else must match exactly."""
+    def cell(value: object) -> object:
+        if isinstance(value, float):
+            return float(Decimal(repr(value)).quantize(Decimal("0.000001"), ROUND_HALF_UP))
+        return value
+
+    columns, rows, truncated = normalized(output)
+    scaled = sorted(json.dumps([cell(v) for v in json.loads(row)]) for row in rows)
+    return columns, scaled, truncated
 
 
 # --- The Snowflake engine refuses on its own, with the guard out of the way -------------

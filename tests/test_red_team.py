@@ -331,8 +331,13 @@ def test_whole_row_references_carry_the_pseudonym(service: WarehouseService) -> 
                               "AND strpos(title, editor) = 0 AND strpos(coalesce(comment, ''), "
                               "editor) = 0 LIMIT 20", "trust_and_safety").rows)
     ids = ", ".join(f"'{event_id}'" for event_id in named)
-    out = run(service, f"SELECT event_id, CAST(e AS VARCHAR) FROM edits e "
-                       f"WHERE event_id IN ({ids})")
+    whole_row = f"SELECT event_id, CAST(e AS VARCHAR) FROM edits e WHERE event_id IN ({ids})"
+    if service.backend.dialect == "snowflake":
+        # Snowflake has no whole-row reference: the engine refuses the alias as a column.
+        with pytest.raises(BackendError, match="invalid identifier"):
+            run(service, whole_row)
+        return
+    out = run(service, whole_row)
     assert len(out.rows) == len(named) > 0
     for event_id, text in out.rows:
         assert named[event_id] not in text and "pii_" in text
