@@ -9,7 +9,7 @@ Install and run commands live in [deployment-guide.md](deployment-guide.md). Ite
 
 | Question | Why it matters | Where it lands |
 |----------|----------------|----------------|
-| Which warehouse and engine (DuckDB, Postgres, BigQuery)? Snowflake is not supported yet | Picks `connection.kind` and the safeguards in [system-architecture.md](system-architecture.md) | `connection` |
+| Which warehouse and engine (DuckDB, Postgres, BigQuery, Snowflake)? | Picks `connection.kind` and the safeguards in [system-architecture.md](system-architecture.md). For Snowflake, `docker/snowflake-setup.sql` is the least-privilege recipe; read the `PUBLIC` role caveat in [snowflake-run.md](snowflake-run.md) first | `connection` |
 | Which 5-15 tables answer the real questions? | Start small; every dataset is a liability | `datasets[].table`, `grain`, `time_column` |
 | Which columns identify a person, directly or indirectly (names, emails, user ids, free text, titles that embed names)? | Anything missed ships in clear text | `pii`, `pii_when`, `free_text` |
 | Who asks what? Interview 3-5 analysts and collect their last 20 real questions | Source for metrics and for eval cases | `metrics`, `evals/cases.jsonl` |

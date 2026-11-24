@@ -7,12 +7,12 @@
     "url": "https://github.com/tantn89/warehouse-mcp",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "warehouse-mcp",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "transport": { "type": "stdio" },
       "packageArguments": [
         { "type": "named", "name": "--demo", "description": "Serve the bundled Wikipedia demo (no setup). Use --config <file> for your own warehouse instead." }

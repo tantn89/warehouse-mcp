@@ -10,7 +10,7 @@ Done:
 - Four read-only MCP tools over DuckDB, Postgres and BigQuery.
 - SQL guard with policy-subquery rewrite: declared columns, row filters, salted pseudonyms, `pii_when`.
 - Semantic layer: curated metrics compiled to SQL; `extends` for shared models.
-- Backend safeguards: read-only connections, timeouts, BigQuery dry run and byte cap.
+- Backend safeguards: read-only connections, timeouts, BigQuery dry run and byte cap, Snowflake reader grants and timeouts.
 - Free-text redaction (emails, phones), cell and result caps, JSONL audit log.
 - Stdio and streamable HTTP with per-role bearer keys.
 - Red-team suite (three gaps found and fixed), DuckDB and Postgres parity tests, CI.
@@ -20,12 +20,16 @@ Open at v0.1 (measure before claiming):
 
 - More eval cases, including harder multi-step questions: the demo suite is saturated at 100%.
 
+## v0.2
+
+Done:
+
+- Snowflake backend: key-pair auth, a least-privilege setup script, parity and red-team coverage, and a live run ([snowflake-run.md](snowflake-run.md)). Engines are now DuckDB, Postgres, BigQuery and Snowflake.
 
 ## Next
 
 | Item | Why | Notes |
 |------|-----|-------|
-| Snowflake backend | Common customer warehouse; today only DuckDB, Postgres, BigQuery | Needs a `Backend` implementation, a connection model, a read-only role recipe and parity/red-team coverage |
 | OAuth resource-server mode | Static bearer keys cannot expire or identify individuals | The server would validate tokens from a customer's identity provider; it would not become an authorization server |
 | Column lineage for free-text redaction beyond names | Tagged columns and regexes miss names typed into free text | Would extend masking beyond declared PII columns |
 | Per-role rate limits | Bound spend and abuse per credential | Not implemented; cost today is capped per query only |

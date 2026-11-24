@@ -2,7 +2,7 @@
 
 **Give AI agents your warehouse without giving them your warehouse.**
 
-An MCP server that lets Claude, Cursor or any MCP client query DuckDB, Postgres or BigQuery
+An MCP server that lets Claude, Cursor or any MCP client query DuckDB, Postgres, BigQuery or Snowflake
 through a governed, read-only layer:
 - a semantic model, so agents ask in business terms;
 - a SQL guard that an agent cannot talk into writing, reading files or leaving its lane;
@@ -26,8 +26,8 @@ Every claim below is backed by a test or a measured run.
 
 | What was checked | Result | Evidence |
 |---|---|---|
-| 104 bypass attempts (exfiltration, row-filter escapes, PII probes, file and system access, statement smuggling, resource abuse) | **0 leaks on DuckDB and on Postgres** | [`tests/test_red_team.py`](tests/test_red_team.py), run in CI |
-| Same 15 queries on three engines | **Identical results** on DuckDB, Postgres and BigQuery | [parity tests](tests/test_postgres_parity.py), [BigQuery run](docs/bigquery-run.md) |
+| 151 bypass attempts (exfiltration, row-filter escapes, PII probes, file and system access, statement smuggling, resource abuse, Snowflake-specific refusals) | **0 leaks on DuckDB and on Postgres** (run in CI) and **on Snowflake** (live run, 151/151) | [`tests/test_red_team.py`](tests/test_red_team.py), [Snowflake run](docs/snowflake-run.md) |
+| Same 15 queries on four engines | **Identical results** on DuckDB, Postgres, BigQuery and Snowflake (Snowflake compared at its 6-decimal scale for `AVG` and division) | [parity tests](tests/test_postgres_parity.py), [BigQuery run](docs/bigquery-run.md), [Snowflake run](docs/snowflake-run.md) |
 | Writes with the SQL guard bypassed | Refused by the engine itself: read-only transaction, then grants | [`test_postgres_parity.py`](tests/test_postgres_parity.py) |
 | A careless agent query on a multi-terabyte table | Refused before billing: *"would scan 4.65 GB, above the 1.00 GB cap"* | [BigQuery run](docs/bigquery-run.md) |
 | A Claude Haiku 5.5 agent answering over MCP, graded against SQL ground truth (26 cases, 3 trials each) | **78/78 correct**, including 6 governance cases, at **$0.0016 per question**, p95 6.3 s. Gated by [regressgate](https://github.com/tantn89/regressgate) | [`evals/cases.jsonl`](evals/cases.jsonl) |
@@ -78,7 +78,7 @@ flowchart LR
     T --> R[Role<br/>from the key]
     R --> G[SQL guard<br/>sqlglot, backend dialect]
     G -->|rewrite each dataset into| P[Policy subquery<br/>declared columns only<br/>salted pseudonyms<br/>role row filter]
-    P --> B[(Backend safeguards<br/>DuckDB: read-only, no file access<br/>Postgres: read-only txn + grants<br/>BigQuery: dry run + byte cap)]
+    P --> B[(Backend safeguards<br/>DuckDB: read-only, no file access<br/>Postgres: read-only txn + grants<br/>BigQuery: dry run + byte cap<br/>Snowflake: reader role grants + timeouts)]
     B --> X[Cell cap + email/phone redaction]
     X --> L[Audit log<br/>no values, no salt]
     L --> A
@@ -168,6 +168,11 @@ named metrics. Undeclared columns do not exist for the agent. Over HTTP
 (`warehouse-mcp --config my.yaml --transport http`) each bearer key selects a role. Keys come
 from environment variables; the config holds no secrets.
 
+Snowflake needs the `snowflake` extra (`pip install "warehouse-mcp[snowflake]"`), a
+key-pair `TYPE=SERVICE` reader user and fully qualified `database.schema.table` names. See
+[`examples/snowflake.yaml`](examples/snowflake.yaml) and the least-privilege setup in
+[`docker/snowflake-setup.sql`](docker/snowflake-setup.sql).
+
 Setup for each backend, Claude Desktop snippets and the eval workflow are in
 [docs/deployment-guide.md](docs/deployment-guide.md). For rolling this out at a company
 (discovery, access model, staged rollout, success metrics, incident runbook), see
@@ -177,7 +182,7 @@ Setup for each backend, Claude Desktop snippets and the eval workflow are in
 
 ```bash
 pip install -e ".[dev]"
-pytest                                    # DuckDB; Postgres/BigQuery suites skip without a DSN
+pytest                                    # DuckDB; Postgres and Snowflake suites skip without their env vars
 docker compose up -d && python scripts/load_snapshot.py --target postgres
 WAREHOUSE_MCP_POSTGRES_DSN=postgresql://mcp_reader:local-only-reader-password@127.0.0.1:55432/warehouse pytest
 ```
@@ -191,7 +196,11 @@ WAREHOUSE_MCP_POSTGRES_DSN=postgresql://mcp_reader:local-only-reader-password@12
   loses the phone pass; it keeps email redaction, which applies everywhere.
 - HTTP uses static bearer keys and plain HTTP. Put TLS in front of it. OAuth resource-server
   mode is on the roadmap.
-- Snowflake is on the roadmap.
+- Snowflake reports no bytes-scanned figure, so there is no byte cap there; cost is bounded by
+  the warehouse size, its resource monitor and the statement timeout.
+- Snowflake grants cannot close every path: every role inherits `PUBLIC`, so revoke what it
+  can read if the warehouse itself must enforce the boundary
+  ([Snowflake run](docs/snowflake-run.md)).
 
 ## Data
 

@@ -47,17 +47,26 @@ caught by column tags; that is the narrow redaction net below, and column lineag
 
 ## Layered defense per backend
 
-| Layer | DuckDB | Postgres | BigQuery |
-|-------|--------|----------|----------|
-| SQL guard (all) | Single read query, declared datasets, function allowlist | same | same |
-| Connection | File opened `read_only`; `enable_external_access` off; extension autoload off; configuration locked | `default_transaction_read_only=on`, `conn.read_only`; reader role with `SELECT` only (`docker/postgres-init.sql`) | ADC identity; recommended `dataViewer` + `jobUser` only (`examples/bigquery.yaml`) |
-| Time | Timer calls `interrupt` after `timeout_s` | Server-side `statement_timeout` | Job `timeout` |
-| Cost | n/a | n/a | Free dry run first; refused above `maximum_bytes_billed`; same cap on the real job |
-| Rows | `fetchmany(max_rows+1)` | `fetchmany(max_rows+1)` | `max_results` |
+| Layer | DuckDB | Postgres | BigQuery | Snowflake |
+|-------|--------|----------|----------|-----------|
+| SQL guard (all) | Single read query, declared datasets, function allowlist | same | same | same, plus the Snowflake refusals below |
+| Connection | File opened `read_only`; `enable_external_access` off; extension autoload off; configuration locked | `default_transaction_read_only=on`, `conn.read_only`; reader role with `SELECT` only (`docker/postgres-init.sql`) | ADC identity; recommended `dataViewer` + `jobUser` only (`examples/bigquery.yaml`) | Key-pair auth for a `TYPE=SERVICE` user; reader role with `SELECT` and no `CREATE`; no current database or schema, so tables are `db.schema.table` (`docker/snowflake-setup.sql`, `examples/snowflake.yaml`) |
+| Time | Timer calls `interrupt` after `timeout_s` | Server-side `statement_timeout` | Job `timeout` | Per-statement, session, user and warehouse timeouts |
+| Cost | n/a | n/a | Free dry run first; refused above `maximum_bytes_billed`; same cap on the real job | No bytes-scanned figure, so no byte cap; bounded by warehouse size, resource monitor and timeouts |
+| Rows | `fetchmany(max_rows+1)` | `fetchmany(max_rows+1)` | `max_results` | `fetchmany(max_rows)` |
+| Session | n/a | n/a | n/a | One session; replaced once when it has expired |
 
 Redaction, cell cap, result cap and audit are backend-independent (`service.py`, `redaction.py`,
 `audit.py`). BigQuery's layer is code-reviewed and dialect-tested but has no live run yet.
 Measured: 15/15 parity cases identical to DuckDB, about $0.00006 per demo query, and a 4.65 GB scan refused by the cap before billing ([bigquery-run.md](bigquery-run.md)).
+Snowflake: 15/15 parity cases identical at its 6-decimal scale and the red-team suite 151/151, with the engine itself refusing writes and unloads when the guard is bypassed ([snowflake-run.md](snowflake-run.md)). Grants do not close temporary tables, the user stage or the `PUBLIC` role; the guard covers the first two and the run doc says how to review the third.
+
+Guard rules that depend on the engine live in `sql_guard_rules.py`, and CTE scope resolution in
+`sql_guard_cte.py`. CTE names are resolved with each engine's identifier rules, so a CTE that
+differs from a dataset only by case cannot reach the physical table (fixed in 0.1.1). On Snowflake
+the guard refuses table functions and row generators, session and account metadata functions, time
+travel, and table clauses the policy rewrite would drop: `SAMPLE`/`TABLESAMPLE`,
+`PIVOT`/`UNPIVOT`, nested joins and alias column lists.
 
 ## Identity: HTTP bearer key to role
 
@@ -81,7 +90,8 @@ fits `max_result_chars`, and a single oversized row has its longest text cells h
 
 Tests live in `tests/test_red_team.py` (RT), `tests/test_sql_guard.py` (SG) and
 `tests/test_postgres_parity.py` (PG; skipped without `WAREHOUSE_MCP_POSTGRES_DSN`). RT runs on DuckDB
-and, when the DSN is set, on Postgres.
+and, when the DSN is set, on Postgres; when the Snowflake account and key-file variables are set it
+also runs on Snowflake (`tests/test_snowflake_parity.py` holds that service builder).
 
 | Threat | Stopped by | Proving test |
 |--------|-----------|--------------|

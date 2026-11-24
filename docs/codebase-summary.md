@@ -12,10 +12,12 @@ Python 3.11+, package `warehouse_mcp` under `src/`, entry point `warehouse-mcp` 
 | `src/warehouse_mcp/server.py` | MCP tools, server `INSTRUCTIONS`, `BearerKeyVerifier`, role resolution per call |
 | `src/warehouse_mcp/service.py` | `WarehouseService`: role -> guard -> backend -> cell/result caps -> redaction -> audit |
 | `src/warehouse_mcp/sql_guard.py` | Parse, reject, dataset resolution, `LIMIT` cap, policy subquery rewrite, pseudonym expression |
+| `src/warehouse_mcp/sql_guard_rules.py` | Engine-dependent refusal rules the guard applies (functions, table clauses, Snowflake-specific refusals) |
+| `src/warehouse_mcp/sql_guard_cte.py` | CTE scope resolution with each engine's identifier rules |
 | `src/warehouse_mcp/semantic.py` | Compiles a metrics request (metrics, dimensions, filters, time grain) to SQL as a syntax tree |
 | `src/warehouse_mcp/redaction.py` | Email and phone replacement for text leaving the server |
 | `src/warehouse_mcp/audit.py` | JSONL audit trail (file or stderr) |
-| `src/warehouse_mcp/backends/` | `base.py` protocol and `BackendError`; `duckdb_backend.py`, `postgres_backend.py`, `bigquery_backend.py`; `__init__.py:open_backend` picks one and imports drivers lazily |
+| `src/warehouse_mcp/backends/` | `base.py` protocol and `BackendError`; `duckdb_backend.py`, `postgres_backend.py`, `bigquery_backend.py`, `snowflake_backend.py`; `__init__.py:open_backend` picks one and imports drivers lazily |
 | `src/warehouse_mcp/demo/` | Bundled Wikipedia snapshot (`data/*.parquet`), the reference semantic model `wikipedia.yaml`, and the builder of the cached DuckDB file |
 | `src/warehouse_mcp/evaluation/` | Agent eval: `agent_loop.py` (Claude over the in-memory MCP server), `grading.py` (answer parsing, numeric tolerance), `ground_truth.py` (the `ground_truth` check), `pricing.py`, `regressgate_target.py` (entry point named in `regressgate.yaml`) |
 
@@ -32,25 +34,32 @@ Registered in `server.py`; all carry read-only annotations (`test_tools_are_list
 
 | Path | Purpose |
 |------|---------|
-| `examples/postgres.yaml`, `examples/bigquery.yaml` | Demo semantic model on another backend via `extends: demo:wikipedia` |
+| `examples/postgres.yaml`, `examples/bigquery.yaml`, `examples/snowflake.yaml` | Demo semantic model on another backend via `extends: demo:wikipedia` |
 | `docker-compose.yml`, `docker/postgres-init.sql` | Local Postgres, owner and SELECT-only reader roles |
-| `scripts/load_snapshot.py` | Load the snapshot into Postgres or BigQuery |
+| `docker/snowflake-setup.sql` | Snowflake account setup: reader service user and role, warehouse, resource monitor, teardown |
+| `scripts/load_snapshot.py` | Load the snapshot into Postgres, BigQuery or Snowflake |
+| `scripts/load_snapshot_snowflake.py` | The Snowflake loader that `load_snapshot.py --target snowflake` uses |
+| `docs/bigquery-run.md`, `docs/snowflake-run.md` | Measured live runs: parity, red team, engine refusals, cost |
 | `scripts/run_agent_eval.py` | Run or summarize the agent eval |
 | `scripts/export_wikipedia_snapshot.py` | Regenerate the Parquet snapshot from the source lakehouse stack (not needed to use the repo) |
 | `evals/cases.jsonl` | Eval questions with ground-truth SQL and governance checks |
 | `regressgate.yaml` | Eval target, repeats and gate thresholds |
 | `.github/workflows/ci.yml`, `eval-gate.yml` | CI (lint, types, tests with Postgres, wheel contents) and the on-demand eval gate |
-| `pyproject.toml` | Dependencies, extras (`postgres`, `bigquery`, `eval`, `dev`), ruff, mypy, pytest settings |
+| `pyproject.toml` | Dependencies, extras (`postgres`, `bigquery`, `snowflake`, `eval`, `dev`), ruff, mypy, pytest settings |
 
 ## Test map
 
-Run with `pytest`; Postgres-gated tests skip without `WAREHOUSE_MCP_POSTGRES_DSN`.
+Run with `pytest`; Postgres-gated tests skip without `WAREHOUSE_MCP_POSTGRES_DSN`, and live Snowflake tests skip without their variables.
 
 | File | Covers | Needs |
 |------|--------|-------|
 | `tests/test_sql_guard.py` | Rewrite correctness executed on DuckDB, rejections, limits, dialect rendering | nothing |
-| `tests/test_red_team.py` | Adversarial queries through `WarehouseService` on the demo snapshot, including regressions of the three fixed gaps | DuckDB always; Postgres when DSN set |
+| `tests/test_red_team.py` | Adversarial queries through `WarehouseService` on the demo snapshot, including regressions of the three fixed gaps | DuckDB always; Postgres when DSN set; Snowflake when its account and key-file variables are set |
 | `tests/test_postgres_parity.py` | DuckDB and Postgres return identical governed answers; engine-level refusals; audit holds no salt. Also exports the service builders `test_red_team.py` reuses | Postgres DSN |
+| `tests/test_snowflake_parity.py` | DuckDB and Snowflake return identical governed answers at Snowflake's 6-decimal scale; live grant and timeout checks. Exports the Snowflake service builder | `WAREHOUSE_MCP_SNOWFLAKE_ACCOUNT`, `WAREHOUSE_MCP_SNOWFLAKE_KEY_FILE` |
+| `tests/test_snowflake_offline.py` | Snowflake SQL rendering, pseudonym semantics and guard refusals in the Snowflake dialect | nothing |
+| `tests/test_snowflake_backend.py`, `tests/test_snowflake_backend_reconnect.py` | Backend against a scripted connector: settings, row cap, replacing an expired session once | nothing |
+| `tests/test_snowflake_config.py`, `tests/test_snowflake_loader.py` | Connection model validation; the loader refuses to run as the reader | nothing |
 | `tests/test_server.py` | End to end over the MCP protocol with an in-memory client | nothing |
 | `tests/test_evaluation.py` | Grading, ground-truth resolution of every eval case, agent loop with a scripted fake model | `eval` extra (skips otherwise); no API key |
 | `tests/conftest.py` | Small semantic model, restricted roles, throwaway DuckDB | nothing |
